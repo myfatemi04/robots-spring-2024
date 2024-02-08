@@ -26,8 +26,9 @@ def parse_intrinsics_and_distortion_coefficients(data, width, height):
 print("Num. Connected Devices:", pyk4a.connected_device_count())
 
 k4a_left = pyk4a.PyK4A(device_id=0)# 256121012)
-k4a_right = pyk4a.PyK4A(device_id=1)# 243521012)
 k4a_left.start()
+
+k4a_right = pyk4a.PyK4A(device_id=1)# 243521012)
 k4a_right.start()
 
 apriltag_detector = apriltag.apriltag("tag36h11")
@@ -125,12 +126,36 @@ try:
             points = tag['lb-rb-rt-lt'].astype(np.float32)
             cv2.drawContours(right_color, [points.astype(int)], 0, (0, 255, 0), 3)
             # Get extrinsics
-            ret, rvecs, tvecs = cv2.solvePnP(apriltag_object_points, points, right_camera_intrinsic_matrix, right_camera_dist_coeffs)
+            # https://docs.opencv.org/4.x/d7/d53/tutorial_py_pose.html
+            ret, rvec, tvec = cv2.solvePnP(apriltag_object_points, points, right_camera_intrinsic_matrix, right_camera_dist_coeffs)
 
-        # Depth capture is (576, 640)
+            # Plot corners of cube ({0, 1}, {0, 1}, {0, 1})
+            # https://docs.opencv.org/3.4/d9/d0c/group__calib3d.html#ga1019495a2c8d1743ed5cc23fa0daff8c
+            points, _idk = cv2.projectPoints(demo_cube_object_points, rvec, tvec, right_camera_intrinsic_matrix, right_camera_dist_coeffs)
+            points = points[:, 0, :]
+            for point in points:
+                cv2.circle(right_color, point.astype(int), 15, (255, 0, 0), 3)
 
-        # print(".color.shape:", left_capture.color.shape)
-        # print(".depth.shape:", left_capture.depth.shape)
+            # To create a rotation matrix, we use Rodrigues
+            # https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html#ga61585db663d9da06b68e70cfbf6a1eac
+            # rot, _jacobian = cv2.Rodrigues(rvecs)
+            pass
+
+        """
+        Depth capture is (576, 640)
+        Image capture is (720, 1280)
+        """
+
+        # Detect hands with `hand_object_detector`
+
+        """
+        Now, let's say we want to triangulate some points.
+        We can do this through OpenCV's triangulatePoints method.
+        Note that this requires undistorted points; we will estimate
+        these through cv2.undistortPoints().
+        
+        https://docs.opencv.org/3.4/da/d54/group__imgproc__transform.html
+        """
 
         # Scale depth inversely
         ld = left_capture.depth
