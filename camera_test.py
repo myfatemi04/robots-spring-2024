@@ -3,6 +3,12 @@ import cv2
 import numpy as np
 import apriltag
 import os
+import sys
+sys.path.insert(0, "./hand_object_detector")
+import detect_hands_pipeline
+os.chdir("hand_object_detector")
+detect_hands_pipeline.initialize()
+os.chdir("..")
 
 def parse_intrinsics_and_distortion_coefficients(data, width, height):
     cx, cy, fx, fy, k1, k2, k3, k4, k5, k6, codx, cody, p2, p1 = data
@@ -101,6 +107,11 @@ try:
         left_color = np.ascontiguousarray(left_capture.color[:, :, :3])
         left_gray = cv2.cvtColor(left_color, cv2.COLOR_RGB2GRAY)
         tags = apriltag_detector.detect(left_gray)
+        hand_bbxs, hand_scores = detect_hands_pipeline.detect(left_color)
+        for hand_bbx in hand_bbxs:
+            x, y, w, h = hand_bbx.astype(int)
+            # cv2.rectangle(left_color, (x, y), (x + w, y + h), (0, 0, 255), 3)
+            cv2.circle(left_color, (x, y), 15, (0, 0, 255), 3)
         for tag in tags:
             points = tag['lb-rb-rt-lt'].astype(np.float32)
             cv2.drawContours(left_color, [points.astype(int)], 0, (0, 255, 0), 3)
@@ -122,6 +133,11 @@ try:
         right_color = np.ascontiguousarray(right_capture.color[:, :, :3])
         right_gray = cv2.cvtColor(right_color, cv2.COLOR_RGB2GRAY)
         tags = apriltag_detector.detect(right_gray)
+        hand_bbxs, hand_scores = detect_hands_pipeline.detect(right_color)
+        for hand_bbx in hand_bbxs:
+            x, y, w, h = hand_bbx.astype(int)
+            # cv2.rectangle(left_color, (x, y), (x + w, y + h), (0, 0, 255), 3)
+            cv2.circle(right_color, (x, y), 15, (0, 0, 255), 3)
         for tag in tags:
             points = tag['lb-rb-rt-lt'].astype(np.float32)
             cv2.drawContours(right_color, [points.astype(int)], 0, (0, 255, 0), 3)
