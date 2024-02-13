@@ -12,7 +12,7 @@ def parse_intrinsics_and_distortion_coefficients(data, width, height):
         [0, fy, cy],
         [0,  0,  1],
     ])
-    distcoeffs = np.array([k1, k2, p1, p2])
+    distcoeffs = np.array([k1, k2, p1, p2, k3])
     distcoeffs = np.zeros_like(distcoeffs)
     return intrinsic_matrix, distcoeffs
 

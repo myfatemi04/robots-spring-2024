@@ -3,3 +3,8 @@ env
 hand_object_detector
 apriltag.cpython-38-x86_64-linux-gnu.so
 Dockerfile
+**/__pycache__/
+.ipynb_checkpoints/
+*.so
+*.avi
+*.mp4
