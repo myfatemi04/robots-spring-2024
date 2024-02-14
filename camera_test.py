@@ -31,10 +31,10 @@ def parse_intrinsics_and_distortion_coefficients(data, width, height):
 
 print("Num. Connected Devices:", pyk4a.connected_device_count())
 
-k4a_left = pyk4a.PyK4A(device_id=0)# 256121012)
+k4a_left = pyk4a.PyK4A(device_id=1)# 256121012)
 k4a_left.start()
 
-k4a_right = pyk4a.PyK4A(device_id=1)# 243521012)
+k4a_right = pyk4a.PyK4A(device_id=0)# 243521012)
 k4a_right.start()
 
 apriltag_detector = apriltag.apriltag("tag36h11")
@@ -45,6 +45,8 @@ apriltag_object_points = np.array([
     [0, +1/2, 0],
     [0, -1/2, 0],
 ]).astype(np.float32) * 0.1778
+
+apriltag_mini_detector = apriltag.apriltag("tagStandard41h12")
 
 demo_cube_object_points = np.array([
     [0, 0, 0],
@@ -218,6 +220,15 @@ try:
                     (6, 7),
                 ]:
                     cv2.line(right_color, points[a].astype(int), points[b].astype(int), color, 3)
+
+        # Draw detections for cubes
+        for detection in apriltag_mini_detector.detect(left_gray):
+            points = tag['lb-rb-rt-lt'].astype(np.float32)
+            cv2.drawContours(left_color, [points.astype(int)], 0, (0, 128, 255), 3)
+
+        for detection in apriltag_mini_detector.detect(right_gray):
+            points = tag['lb-rb-rt-lt'].astype(np.float32)
+            cv2.drawContours(right_color, [points.astype(int)], 0, (0, 128, 255), 3)
 
         """
         Depth capture is (576, 640)
