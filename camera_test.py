@@ -138,8 +138,6 @@ try:
             for (multiplier, color) in [(0.1, (255, 0, 0)), (0.5, (0, 255, 0)), (0.7, (0, 0, 255)), (1.0, (255, 255, 255))][::-1]:
                 points, _jacobian = cv2.projectPoints(demo_cube_object_points * multiplier, rvec, tvec, left_camera_intrinsic_matrix, left_camera_dist_coeffs)
                 points = points[:, 0, :]
-                if multiplier == 1:
-                    print(points)
                 for point in points:
                     cv2.circle(left_color, point.astype(int), 15, color, 3)
                 # draw line to connect them
