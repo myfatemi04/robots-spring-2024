@@ -1,8 +1,8 @@
-from polymetis import RobotInterface
+# from polymetis import RobotInterface
 
-robot = RobotInterface(
-    ip_address="localhost",
-)
+# robot = RobotInterface(
+#     ip_address="localhost",
+# )
 """
 Available in RobotInterface:
 https://facebookresearch.github.io/fairo/polymetis/polymetis.html#polymetis.robot_interface.RobotInterface
@@ -36,16 +36,32 @@ the joint's rotation axis. Then, the joint before that applies *it's* translatio
 
 """
 
-### For controlling gripper
-from polymetis import GripperInterface
+from polymetis import RobotInterface, GripperInterface
+import torch
 
 polymetis_server_ip = "192.168.1.222"
 
-gripper = GripperInterface(
-    ip_address=polymetis_server_ip,
+robot = RobotInterface(
+  ip_address=polymetis_server_ip,
+  port=50051,
+  enforce_version=False,
 )
 
-# example usages
-gripper_state = gripper.get_state()
-gripper.goto(width=0.01, speed=0.05)
-gripper.grasp(speed=0.05, force=0.1)
+Z_BIAS = 0.12
+
+robot.move_to_ee_pose(torch.tensor([0.5, 0.2, 0.0 + Z_BIAS]))
+
+# gripper = GripperInterface(
+#   ip_address=polymetis_server_ip,
+#   port=50052
+# )
+
+# # example usages
+# gripper_state = gripper.get_state()
+# print(gripper_state)
+# gripper.goto(1.0, 0.05, 1.0)
+# gripper.grasp(0.05, 0.5, 1)
+# # gripper.goto(width=0.01, speed=0.05, force=0.1)
+
+# import time
+# time.sleep(1)
