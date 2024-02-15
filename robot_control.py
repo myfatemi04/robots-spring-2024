@@ -39,8 +39,10 @@ the joint's rotation axis. Then, the joint before that applies *it's* translatio
 ### For controlling gripper
 from polymetis import GripperInterface
 
+polymetis_server_ip = "192.168.1.222"
+
 gripper = GripperInterface(
-    ip_address="localhost",
+    ip_address=polymetis_server_ip,
 )
 
 # example usages
