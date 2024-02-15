@@ -1,12 +1,11 @@
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import pyk4a
 import cv2
 import numpy as np
 import apriltag
 import os
 import sys
-import matplotlib.pyplot as plt
-import matplotlib.collections
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 sys.path.insert(0, "./hand_object_detector")
 import detect_hands_pipeline
 os.chdir("hand_object_detector")
