@@ -4,6 +4,9 @@ import numpy as np
 import apriltag
 import os
 import sys
+import matplotlib.pyplot as plt
+import matplotlib.collections
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 sys.path.insert(0, "./hand_object_detector")
 import detect_hands_pipeline
 os.chdir("hand_object_detector")
@@ -66,6 +69,10 @@ demo_cube_object_points = np.array([
 WIDTH = 1280
 HEIGHT = 720
 
+# For plotting 3D object detections
+fig = plt.figure()
+object_detection_rendering_ax = fig.add_subplot(projection='3d', computed_zorder=False)
+
 # fx, fy, cx, cy are given in relative coordinates.
 # pyk4a.Calibration()
 
@@ -110,123 +117,156 @@ else:
         6.3994346419349313E-5
     ], WIDTH, HEIGHT)
 
-do_hand_detection = False
+do_hand_detection = True
+
+left_extrinsic_matrix = None
+right_extrinsic_matrix = None
 
 try:
     while True:
         left_capture = k4a_left.get_capture()
         right_capture = k4a_right.get_capture()
 
+        left_camera_hand_center = None
+        right_camera_hand_center = None
+        
         left_color = np.ascontiguousarray(left_capture.color[:, :, :3])
-        left_gray = cv2.cvtColor(left_color, cv2.COLOR_RGB2GRAY)
-        tags = apriltag_detector.detect(left_gray)
+        if left_extrinsic_matrix is None:
+            left_gray = cv2.cvtColor(left_color, cv2.COLOR_RGB2GRAY)
+            try:
+                tags = apriltag_detector.detect(left_gray)
+            except RuntimeError:
+                print("left_gray had threading error")
+            for tag in tags:
+                points = tag['lb-rb-rt-lt'].astype(np.float32)
+                cv2.drawContours(left_color, [points.astype(int)], 0, (0, 255, 0), 3)
+                # Get extrinsics
+                # https://docs.opencv.org/4.x/d7/d53/tutorial_py_pose.html
+                ret, rvec, tvec = cv2.solvePnP(apriltag_object_points, points, left_camera_intrinsic_matrix, left_camera_dist_coeffs)
+                left_rotation_matrix, _ = cv2.Rodrigues(rvec)
+                left_translation = tvec
+                left_extrinsic_matrix = np.concatenate((left_rotation_matrix, left_translation), axis=1)
+
+                # Plot corners of cube ({0, 1}, {0, 1}, {0, 1})
+                # https://docs.opencv.org/3.4/d9/d0c/group__calib3d.html#ga1019495a2c8d1743ed5cc23fa0daff8c
+                for (multiplier, color) in [(0.1, (255, 0, 0)), (0.5, (0, 255, 0)), (0.7, (0, 0, 255)), (1.0, (255, 255, 255))][::-1]:
+                    points, _jacobian = cv2.projectPoints(demo_cube_object_points * multiplier, rvec, tvec, left_camera_intrinsic_matrix, left_camera_dist_coeffs)
+                    points = points[:, 0, :]
+                    for point in points:
+                        cv2.circle(left_color, point.astype(int), 15, color, 3)
+                    # draw line to connect them
+                    # [0, 0, 0],
+                    # [0, 1, 0],
+                    # [1, 0, 0],
+                    # [1, 1, 0],
+                    # [0, 0, 1],
+                    # [0, 1, 1],
+                    # [1, 0, 1],
+                    # [1, 1, 1],
+                    for (a, b) in [
+                        (0, 1),
+                        (0, 2),
+                        (0, 4),
+                        (1, 3),
+                        (1, 5),
+                        (2, 3),
+                        (2, 6),
+                        (3, 7),
+                        (4, 5),
+                        (4, 6),
+                        (5, 7),
+                        (6, 7),
+                    ]:
+                        cv2.line(left_color, points[a].astype(int), points[b].astype(int), color, 3)
+
+                # To create a rotation matrix, we use Rodrigues
+                # https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html#ga61585db663d9da06b68e70cfbf6a1eac
+                # rot, _jacobian = cv2.Rodrigues(rvecs)
+
         if do_hand_detection:
             hand_bbxs, hand_scores = detect_hands_pipeline.detect(left_color)
-            for hand_bbx in hand_bbxs:
-                x, y, w, h = hand_bbx.astype(int)
-                # cv2.rectangle(left_color, (x, y), (x + w, y + h), (0, 0, 255), 3)
-                cv2.circle(left_color, (x, y), 15, (0, 0, 255), 3)
-        for tag in tags:
-            points = tag['lb-rb-rt-lt'].astype(np.float32)
-            cv2.drawContours(left_color, [points.astype(int)], 0, (0, 255, 0), 3)
-            # Get extrinsics
-            # https://docs.opencv.org/4.x/d7/d53/tutorial_py_pose.html
-            ret, rvec, tvec = cv2.solvePnP(apriltag_object_points, points, left_camera_intrinsic_matrix, left_camera_dist_coeffs)
-
-            # Plot corners of cube ({0, 1}, {0, 1}, {0, 1})
-            # https://docs.opencv.org/3.4/d9/d0c/group__calib3d.html#ga1019495a2c8d1743ed5cc23fa0daff8c
-            for (multiplier, color) in [(0.1, (255, 0, 0)), (0.5, (0, 255, 0)), (0.7, (0, 0, 255)), (1.0, (255, 255, 255))][::-1]:
-                points, _jacobian = cv2.projectPoints(demo_cube_object_points * multiplier, rvec, tvec, left_camera_intrinsic_matrix, left_camera_dist_coeffs)
-                points = points[:, 0, :]
-                for point in points:
-                    cv2.circle(left_color, point.astype(int), 15, color, 3)
-                # draw line to connect them
-                # [0, 0, 0],
-                # [0, 1, 0],
-                # [1, 0, 0],
-                # [1, 1, 0],
-                # [0, 0, 1],
-                # [0, 1, 1],
-                # [1, 0, 1],
-                # [1, 1, 1],
-                for (a, b) in [
-                    (0, 1),
-                    (0, 2),
-                    (0, 4),
-                    (1, 3),
-                    (1, 5),
-                    (2, 3),
-                    (2, 6),
-                    (3, 7),
-                    (4, 5),
-                    (4, 6),
-                    (5, 7),
-                    (6, 7),
-                ]:
-                    cv2.line(left_color, points[a].astype(int), points[b].astype(int), color, 3)
-
-            # To create a rotation matrix, we use Rodrigues
-            # https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html#ga61585db663d9da06b68e70cfbf6a1eac
-            # rot, _jacobian = cv2.Rodrigues(rvecs)
+            for hand_bbox in hand_bbxs:
+                hand_bbox = np.round(hand_bbox).astype(int)
+                x1, y1, x2, y2 = hand_bbox.astype(int)
+                center_x = (x1 + x2) // 2
+                center_y = (y1 + y2) // 2
+                left_camera_hand_center = (center_x, center_y)
+                # cv2.rectangle(right_color, (hand_bbox[0], max(0, hand_bbox[1]-30)), (hand_bbox[0]+62, max(0, hand_bbox[1]-30)+30), (255, 255, 255), 4)
+                cv2.rectangle(left_color, (x1, y1), (x2, y2), (255, 255, 255), 4)
+                cv2.circle(left_color, (center_x, center_y), 15, (0, 0, 255), 3)
 
         right_color = np.ascontiguousarray(right_capture.color[:, :, :3])
-        right_gray = cv2.cvtColor(right_color, cv2.COLOR_RGB2GRAY)
-        tags = apriltag_detector.detect(right_gray)
+        if right_extrinsic_matrix is None:
+            right_gray = cv2.cvtColor(right_color, cv2.COLOR_RGB2GRAY)
+            try:
+                tags = apriltag_detector.detect(right_gray)
+            except RuntimeError:
+                print("right_gray had threading error")
+
+            for tag in tags:
+                points = tag['lb-rb-rt-lt'].astype(np.float32)
+                cv2.drawContours(right_color, [points.astype(int)], 0, (0, 255, 0), 3)
+                # Get extrinsics
+                # https://docs.opencv.org/4.x/d7/d53/tutorial_py_pose.html
+                ret, rvec, tvec = cv2.solvePnP(apriltag_object_points, points, right_camera_intrinsic_matrix, right_camera_dist_coeffs)
+                right_rotation_matrix, _ = cv2.Rodrigues(rvec)
+                right_translation = tvec
+                right_extrinsic_matrix = np.concatenate((right_rotation_matrix, right_translation), axis=1)
+
+                # Plot corners of cube ({0, 1}, {0, 1}, {0, 1}) at different scales
+                # https://docs.opencv.org/3.4/d9/d0c/group__calib3d.html#ga1019495a2c8d1743ed5cc23fa0daff8c
+                for (multiplier, color) in [(0.1, (255, 0, 0)), (0.5, (0, 255, 0)), (0.7, (0, 0, 255)), (1.0, (255, 255, 255))][::-1]:
+                    demo_cube_object_points[:, 1] *= -1
+                    points, _jacobian = cv2.projectPoints(demo_cube_object_points * multiplier, rvec, tvec, right_camera_intrinsic_matrix, right_camera_dist_coeffs)
+                    points = points[:, 0, :]
+                    demo_cube_object_points[:, 1] *= -1
+                    for point in points:
+                        cv2.circle(right_color, point.astype(int), 15, color, 3)
+                    # draw line to connect them
+                    # [0, 0, 0],
+                    # [0, 1, 0],
+                    # [1, 0, 0],
+                    # [1, 1, 0],
+                    # [0, 0, 1],
+                    # [0, 1, 1],
+                    # [1, 0, 1],
+                    # [1, 1, 1],
+                    for (a, b) in [
+                        (0, 1),
+                        (0, 2),
+                        (0, 4),
+                        (1, 3),
+                        (1, 5),
+                        (2, 3),
+                        (2, 6),
+                        (3, 7),
+                        (4, 5),
+                        (4, 6),
+                        (5, 7),
+                        (6, 7),
+                    ]:
+                        cv2.line(right_color, points[a].astype(int), points[b].astype(int), color, 3)
+
         if do_hand_detection:
             hand_bbxs, hand_scores = detect_hands_pipeline.detect(right_color)
-            for hand_bbx in hand_bbxs:
-                x, y, w, h = hand_bbx.astype(int)
-                # cv2.rectangle(left_color, (x, y), (x + w, y + h), (0, 0, 255), 3)
-                cv2.circle(right_color, (x, y), 15, (0, 0, 255), 3)
-        for tag in tags:
-            points = tag['lb-rb-rt-lt'].astype(np.float32)
-            cv2.drawContours(right_color, [points.astype(int)], 0, (0, 255, 0), 3)
-            # Get extrinsics
-            # https://docs.opencv.org/4.x/d7/d53/tutorial_py_pose.html
-            ret, rvec, tvec = cv2.solvePnP(apriltag_object_points, points, right_camera_intrinsic_matrix, right_camera_dist_coeffs)
-
-            # Plot corners of cube ({0, 1}, {0, 1}, {0, 1}) at different scales
-            # https://docs.opencv.org/3.4/d9/d0c/group__calib3d.html#ga1019495a2c8d1743ed5cc23fa0daff8c
-            for (multiplier, color) in [(0.1, (255, 0, 0)), (0.5, (0, 255, 0)), (0.7, (0, 0, 255)), (1.0, (255, 255, 255))][::-1]:
-                demo_cube_object_points[:, 1] *= -1
-                points, _jacobian = cv2.projectPoints(demo_cube_object_points * multiplier, rvec, tvec, right_camera_intrinsic_matrix, right_camera_dist_coeffs)
-                points = points[:, 0, :]
-                demo_cube_object_points[:, 1] *= -1
-                for point in points:
-                    cv2.circle(right_color, point.astype(int), 15, color, 3)
-                # draw line to connect them
-                # [0, 0, 0],
-                # [0, 1, 0],
-                # [1, 0, 0],
-                # [1, 1, 0],
-                # [0, 0, 1],
-                # [0, 1, 1],
-                # [1, 0, 1],
-                # [1, 1, 1],
-                for (a, b) in [
-                    (0, 1),
-                    (0, 2),
-                    (0, 4),
-                    (1, 3),
-                    (1, 5),
-                    (2, 3),
-                    (2, 6),
-                    (3, 7),
-                    (4, 5),
-                    (4, 6),
-                    (5, 7),
-                    (6, 7),
-                ]:
-                    cv2.line(right_color, points[a].astype(int), points[b].astype(int), color, 3)
+            for hand_bbox in hand_bbxs:
+                hand_bbox = np.round(hand_bbox).astype(int)
+                x1, y1, x2, y2 = hand_bbox.astype(int)
+                center_x = (x1 + x2) // 2
+                center_y = (y1 + y2) // 2
+                right_camera_hand_center = (center_x, center_y)
+                # cv2.rectangle(right_color, (hand_bbox[0], max(0, hand_bbox[1]-30)), (hand_bbox[0]+62, max(0, hand_bbox[1]-30)+30), (255, 255, 255), 4)
+                cv2.rectangle(right_color, (x1, y1), (x2, y2), (255, 255, 255), 4)
+                cv2.circle(right_color, (center_x, center_y), 15, (0, 0, 255), 3)
 
         # Draw detections for cubes
-        for detection in apriltag_mini_detector.detect(left_gray):
-            points = tag['lb-rb-rt-lt'].astype(np.float32)
-            cv2.drawContours(left_color, [points.astype(int)], 0, (0, 128, 255), 3)
+        # for detection in apriltag_mini_detector.detect(left_gray):
+        #     points = tag['lb-rb-rt-lt'].astype(np.float32)
+        #     cv2.drawContours(left_color, [points.astype(int)], 0, (0, 128, 255), 3)
 
-        for detection in apriltag_mini_detector.detect(right_gray):
-            points = tag['lb-rb-rt-lt'].astype(np.float32)
-            cv2.drawContours(right_color, [points.astype(int)], 0, (0, 128, 255), 3)
+        # for detection in apriltag_mini_detector.detect(right_gray):
+        #     points = tag['lb-rb-rt-lt'].astype(np.float32)
+        #     cv2.drawContours(right_color, [points.astype(int)], 0, (0, 128, 255), 3)
 
         """
         Depth capture is (576, 640)
@@ -245,15 +285,63 @@ try:
         """
 
         # Scale depth inversely
-        ld = left_capture.depth
-        ld = ld/ld.max()
-        rd = right_capture.depth
-        rd = rd/rd.max()
+        # ld = left_capture.depth
+        # ld = ld/ld.max()
+        # rd = right_capture.depth
+        # rd = rd/rd.max()
+        # cv2.imshow('left_depth', ld)
+        # cv2.imshow('right_depth', rd)
 
         cv2.imshow('left', left_color)
         cv2.imshow('right', right_color)
-        cv2.imshow('left_depth', ld)
-        cv2.imshow('right_depth', rd)
+
+        if left_camera_hand_center is not None \
+            and right_camera_hand_center is not None \
+            and left_extrinsic_matrix is not None \
+            and right_extrinsic_matrix is not None:
+            # undistort points
+            # note: this undoes the intrinsic matrix as well
+            undistorted_left = cv2.undistortPoints(np.array([left_camera_hand_center]).astype(np.float32), left_camera_intrinsic_matrix, left_camera_dist_coeffs)
+            undistorted_right = cv2.undistortPoints(np.array([right_camera_hand_center]).astype(np.float32), right_camera_intrinsic_matrix, right_camera_dist_coeffs)
+            print(undistorted_left[0], undistorted_right[0])
+            # therefore here, you must pretend that the intrinsic matrix is the identity
+            # the *_extrinsic_matrix parameters are supposed to be camera matrices (i.e. intrinsic @ extrinsic)
+            # but we just use extrinsic to pretend that the intrinsic matrix is the identity
+            triangulated_homogenous = cv2.triangulatePoints(left_extrinsic_matrix, right_extrinsic_matrix, undistorted_left, undistorted_right)
+            triangulated_homogenous = triangulated_homogenous.T
+            print(triangulated_homogenous)
+            triangulated = triangulated_homogenous[:, :3] / triangulated_homogenous[:, -1]
+            print("Triangulated:", triangulated)
+            x, y, z = triangulated[0]
+            object_detection_rendering_ax.clear()
+            object_detection_rendering_ax.view_init(elev=30, azim=0, roll=0)
+            object_detection_rendering_ax.set_title("World Coordinates and Detections")
+            # Add background
+            vertices = [
+                np.array([
+                    (0, -1, -0.1),
+                    (0,  1, -0.1),
+                    (1,  1, -0.1),
+                    (1, -1, -0.1),
+                ]),
+                np.array([
+                    (0, -1, -0.1),
+                    (0,  1, -0.1),
+                    (0,  1, 1),
+                    (0, -1, 1),
+                ]),
+            ]
+            object_detection_rendering_ax.add_collection3d(Poly3DCollection(vertices, color=(0.2, 0.2, 0.2, 1.0)))
+            object_detection_rendering_ax.scatter(x, y, z, label='Hand', s=25, c=(0, 1, 0, 1.0))
+            object_detection_rendering_ax.scatter(*apriltag_object_points.T, label='AprilTag points', s=5, c='r')
+            object_detection_rendering_ax.set_xlabel("X (m)")
+            object_detection_rendering_ax.set_ylabel("Y (m)")
+            object_detection_rendering_ax.set_zlabel("Z (m)")
+            object_detection_rendering_ax.set_xlim(-1, 1)
+            object_detection_rendering_ax.set_ylim(-1, 1)
+            object_detection_rendering_ax.set_zlim(-1, 1)
+            object_detection_rendering_ax.legend()
+            plt.pause(0.1)
 
         if cv2.waitKey(1) == ord('q'):
             break
