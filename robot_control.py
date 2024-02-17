@@ -49,17 +49,19 @@ robot = RobotInterface(
 
 Z_BIAS = 0.12
 
-robot.move_to_ee_pose(torch.tensor([0.5, 0.2, 0.0 + Z_BIAS]))
+# robot.go_home()
 
-# gripper = GripperInterface(
-#   ip_address=polymetis_server_ip,
-#   port=50052
-# )
+robot.move_to_ee_pose(torch.tensor([0.4, -0.2, 0.4 + Z_BIAS]))
+
+gripper = GripperInterface(
+  ip_address=polymetis_server_ip,
+  port=50052
+)
 
 # # example usages
 # gripper_state = gripper.get_state()
 # print(gripper_state)
-# gripper.goto(1.0, 0.05, 1.0)
+gripper.goto(1.0, 0.05, 0.1)
 # gripper.grasp(0.05, 0.5, 1)
 # # gripper.goto(width=0.01, speed=0.05, force=0.1)
 
