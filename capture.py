@@ -1,41 +1,24 @@
+import json
 import os
+import pickle
 import sys
+import time
 
 import cv2
 import numpy as np
-
-import apriltag
 import pyk4a
 
+import apriltag
+
 sys.path.insert(0, "./hand_object_detector")
-import detect_hands_pipeline # type: ignore
+import detect_hands_pipeline  # type: ignore
+
 os.chdir("hand_object_detector")
 detect_hands_pipeline.initialize()
 os.chdir("..")
 
-from camera import Camera, triangulate
 import visualization
-
-if pyk4a.connected_device_count() < 2:
-    print("Error: Not enough K4A devices connected (<2).")
-    exit(1)
-
-k4a_devices = [pyk4a.PyK4A(device_id=i) for i in [0, 1]]
-k4a_device_map = {}
-for device in k4a_devices:
-    device.start()
-    k4a_device_map[device.serial] = device
-
-k4a_left = k4a_device_map['000256121012']
-k4a_right = k4a_device_map['000243521012']
-
-apriltag_object_points = np.array([
-    # order: left bottom, right bottom, right top, left top
-    [1, -1/2, 0],
-    [1, +1/2, 0],
-    [0, +1/2, 0],
-    [0, -1/2, 0],
-]).astype(np.float32) * 0.1778
+from camera import Camera, triangulate
 
 class HandCapture:
     def __init__(self, left: Camera, right: Camera, image_width=1280, image_height=720):
@@ -112,31 +95,92 @@ class HandCapture:
         self.left.close()
         self.right.close()
 
-capture = HandCapture(
-    Camera(k4a_left),
-    Camera(k4a_right),
-)
+
+if pyk4a.connected_device_count() < 2:
+    print("Error: Not enough K4A devices connected (<2).")
+    exit(1)
+
+k4a_devices = [pyk4a.PyK4A(device_id=i) for i in [0, 1]]
+k4a_device_map = {}
+for device in k4a_devices:
+    device.start()
+    k4a_device_map[device.serial] = device
+
+left = Camera(k4a_device_map['000256121012'])
+right = Camera(k4a_device_map['000243521012'])
+
+with open('recordings/recording_003_dummy/camera_calibration.json', 'r') as f:
+    calibration = json.load(f)
+    left.import_calibration(calibration['left'])
+    right.import_calibration(calibration['right'])
+
+apriltag_object_points = np.array([
+    # order: left bottom, right bottom, right top, left top
+    [1, -1/2, 0],
+    [1, +1/2, 0],
+    [0, +1/2, 0],
+    [0, -1/2, 0],
+]).astype(np.float32) * 0.1778
+
+capture = HandCapture(left, right)
 visualizer = visualization.ObjectDetectionVisualizer(live=True)
+
+recording_name = 'recording_004_open_drawer'
+prefix = os.path.join('recordings', recording_name)
+if not os.path.exists(prefix):
+    os.makedirs(prefix)
+
+out_left = cv2.VideoWriter(os.path.join(prefix, 'output_left.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 20.0, (1280, 720))
+out_right = cv2.VideoWriter(os.path.join(prefix, 'output_right.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 20.0, (1280, 720))
+# Everything in this must be a pure Python object or Numpy array
+recording = []
+
+prev_frame_time = time.time()
 
 try:
     while True:
         detection = capture.next()
         left_color = detection['left']['color']
         right_color = detection['right']['color']
+        hand_position = detection['hand_position']
 
-        if (hand_position_3d := detection['hand_position']['3d']) is not None:
+        out_left.write(left_color)
+        out_right.write(right_color)
+        recording.append({
+            'timestamp': time.time(),
+            'hand_position': hand_position,
+        })
+
+        if (hand_position_3d := hand_position['3d']) is not None:
             visualizer.show([
                 ('AprilTag', apriltag_object_points.T, 5, (0, 0, 1.0, 1.0)),
                 ('Hand', hand_position_3d, 25, (0, 1.0, 0, 1.0))
             ])
-            cv2.circle(left_color, detection['hand_position']['left_2d'].astype(int), 11, (255, 0, 0), 3)
-            cv2.circle(right_color, detection['hand_position']['right_2d'].astype(int), 11, (255, 0, 0), 3)
+            cv2.circle(left_color, hand_position['left_2d'].astype(int), 11, (255, 0, 0), 3)
+            cv2.circle(right_color, hand_position['right_2d'].astype(int), 11, (255, 0, 0), 3)
 
         cv2.imshow('Left camera', left_color)
         cv2.imshow('Right camera', right_color)
 
+        # Print FPS
+        frame_time = time.time()
+        time_for_frame = (frame_time - prev_frame_time)
+        prev_frame_time = frame_time
+        print(f"FPS: {1/time_for_frame:.2f}")
+
         if cv2.waitKey(1) == ord('q'):
             break
 finally:
-    k4a_left.close()
-    k4a_right.close()
+    left.close()
+    right.close()
+    out_left.release()
+    out_right.release()
+
+    with open(os.path.join(prefix, "recording.pkl"), "wb") as f:
+        pickle.dump(recording, f)
+
+    with open(os.path.join(prefix, "camera_calibration.json"), "wb") as f:
+        pickle.dump({
+            'left': left.export_calibration(),
+            'right': left.export_calibration(),
+        }, f)

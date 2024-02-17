@@ -11,6 +11,7 @@ class Camera:
         self.extrinsic_matrix = None
         self.intrinsic_matrix = k4a.calibration.get_camera_matrix(pyk4a.CalibrationType.COLOR)
         self.distortion_coefficients = k4a.calibration.get_distortion_coefficients(pyk4a.CalibrationType.COLOR)
+        self.original_calibration = True
         self.prev_capture: Optional[pyk4a.PyK4ACapture] = None
 
     def capture(self):
@@ -39,6 +40,22 @@ class Camera:
         # Note: This undoes the intrinsic matrix as well
         return cv2.undistortPoints(image_points.astype(np.float32), self.intrinsic_matrix, self.distortion_coefficients)
     
+    # Useful for tasks where the AprilTag starts off occluded.
+    def export_calibration(self):
+        return {
+            'rvec_tvec': self.rvec_tvec,
+            'extrinsic_matrix': self.extrinsic_matrix,
+            'intrinsic_matrix': self.intrinsic_matrix,
+            'distortion_coefficients': self.distortion_coefficients,
+        }
+
+    def import_calibration(self, calibration):
+        self.rvec_tvec = calibration.get('rvec_tvec', None)
+        self.extrinsic_matrix = calibration.get('extrinsic_matrix', None)
+        self.intrinsic_matrix = calibration.get('intrinsic_matrix', None)
+        self.distortion_coefficients = calibration.get('distortion_coefficients', None)
+        self.original_calibration = False
+
     def close(self):
         self.k4a.close()
 
