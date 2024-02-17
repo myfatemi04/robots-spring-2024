@@ -23,11 +23,11 @@ class ObjectDetectionVisualizer:
         # For plotting 3D object detections
         self.fig = plt.figure()
         self.axes = self.fig.add_subplot(projection='3d', computed_zorder=False)
+        self.axes.view_init(elev=30, azim=0, roll=0)
         self.live = live
 
     def show(self, objects):
         self.axes.clear()
-        self.axes.view_init(elev=30, azim=0, roll=0)
         self.axes.set_title("World Coordinates and Detections")
 
         self.axes.add_collection3d(Poly3DCollection(vertices, color=(0.2, 0.2, 0.2, 1.0)))

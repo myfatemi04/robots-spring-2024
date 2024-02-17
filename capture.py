@@ -20,6 +20,7 @@ os.chdir("..")
 import visualization
 from camera import Camera, triangulate
 
+
 class HandCapture:
     def __init__(self, left: Camera, right: Camera, image_width=1280, image_height=720):
         self.left = left
@@ -109,11 +110,6 @@ for device in k4a_devices:
 left = Camera(k4a_device_map['000256121012'])
 right = Camera(k4a_device_map['000243521012'])
 
-with open('recordings/recording_003_dummy/camera_calibration.json', 'r') as f:
-    calibration = json.load(f)
-    left.import_calibration(calibration['left'])
-    right.import_calibration(calibration['right'])
-
 apriltag_object_points = np.array([
     # order: left bottom, right bottom, right top, left top
     [1, -1/2, 0],
@@ -125,10 +121,23 @@ apriltag_object_points = np.array([
 capture = HandCapture(left, right)
 visualizer = visualization.ObjectDetectionVisualizer(live=True)
 
-recording_name = 'recording_004_open_drawer'
-prefix = os.path.join('recordings', recording_name)
+with open('recordings/recording_003_dummy/camera_calibration.pkl', 'rb') as f:
+    calibration = pickle.load(f)
+    left.import_calibration(calibration['left'])
+    right.import_calibration(calibration['right'])
+
+recording_title = 'open_top_drawer'
+
+# Calculate a serial
+recording_serial = 1
+existing_recordings = os.listdir('recordings')
+while any([f'{recording_serial:03d}' in filename for filename in existing_recordings]):
+    recording_serial += 1
+
+prefix = os.path.join('recordings', f'recording_{recording_serial:03d}_{recording_title}')
 if not os.path.exists(prefix):
     os.makedirs(prefix)
+print("Saving to", prefix)
 
 out_left = cv2.VideoWriter(os.path.join(prefix, 'output_left.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 20.0, (1280, 720))
 out_right = cv2.VideoWriter(os.path.join(prefix, 'output_right.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 20.0, (1280, 720))
@@ -166,7 +175,7 @@ try:
         frame_time = time.time()
         time_for_frame = (frame_time - prev_frame_time)
         prev_frame_time = frame_time
-        print(f"FPS: {1/time_for_frame:.2f}")
+        print(f"FPS: {1/time_for_frame:.2f}", end='\r')
 
         if cv2.waitKey(1) == ord('q'):
             break
@@ -179,8 +188,8 @@ finally:
     with open(os.path.join(prefix, "recording.pkl"), "wb") as f:
         pickle.dump(recording, f)
 
-    with open(os.path.join(prefix, "camera_calibration.json"), "wb") as f:
+    with open(os.path.join(prefix, "camera_calibration.pkl"), "wb") as f:
         pickle.dump({
             'left': left.export_calibration(),
-            'right': left.export_calibration(),
+            'right': right.export_calibration(),
         }, f)
