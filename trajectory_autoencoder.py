@@ -1,49 +1,105 @@
+import torch
+import torch.nn as nn
+import torch.utils.data
+
 """
-Note that because we only consider a certain horizon of each trajectory,
-we could actually just record one long video and make crops out of that.
+Here, the goal is to create a generative model
+for sequences.
 
-Additionally, we could use a video captioning agent to describe each capture
-and format the captions as instructions.
+To train such a sequence autoencoder, maybe we could
+do contrastive learning and train separate encoders
+and decoders over the embeddings. Tbh that's the
+most obvious way to train it...
 
-We could even take a Whisper model and use it to caption the audio, and then
-we can label our data just by narrating along, saying things like "And now,
-I will open the top drawer."
+Could use an LSTM, could use a transformer. Transformers
+tend to have more stable training I think.
 
-Anyway. For now, let's just inspect the data.
+Sampling frequency will be fixed, such that token 1 is always for 0s,
+token 5 is always for 0.5s, etc. (Sampling rate may differ from this
+example in the actual model).
 """
+
+"""
+LSTM parameters:
+    input_size: The number of expected features in the input `x`
+    hidden_size: The number of features in the hidden state `h`
+    num_layers: Number of recurrent layers. E.g., setting ``num_layers=2``
+        would mean stacking two LSTMs together to form a `stacked LSTM`,
+        with the second LSTM taking in outputs of the first LSTM and
+        computing the final results. Default: 1
+    bias: If ``False``, then the layer does not use bias weights `b_ih` and `b_hh`.
+        Default: ``True``
+    batch_first: If ``True``, then the input and output tensors are provided
+        as `(batch, seq, feature)` instead of `(seq, batch, feature)`.
+        Note that this does not apply to hidden or cell states. See the
+        Inputs/Outputs sections below for details.  Default: ``False``
+    dropout: If non-zero, introduces a `Dropout` layer on the outputs of each
+        LSTM layer except the last layer, with dropout probability equal to
+        :attr:`dropout`. Default: 0
+    bidirectional: If ``True``, becomes a bidirectional LSTM. Default: ``False``
+    proj_size: If ``> 0``, will use LSTM with projections of corresponding size. Default: 0
+"""
+
+# Train the encoder with contrastive learning.
+class TrajectoryEncoder(nn.Module):
+    def __init__(self, d_model=32, nhead=2, max_sequence_length=100):
+        super().__init__()
+
+        self.max_sequence_length = max_sequence_length
+        self.temporal_embeddings = nn.Embedding(max_sequence_length + 1, d_model)
+        self.encoder = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model=d_model,
+                nhead=nhead,
+                dim_feedforward=d_model * 4,
+                dropout=0.1,
+                batch_first=True,
+            ),
+            num_layers=2,
+        )
+        self.project_coordinates = nn.Linear(3, d_model)
+
+    def forward(self, sequence: torch.Tensor):
+        # Assume no batch is passed in.
+        # Add temporal positional embeddings.
+        # Append a special `embedding` token for readout.
+        sequence = sequence + self.temporal_embeddings(torch.arange(sequence.shape[0]).cuda())
+        embedding_token = self.temporal_embeddings(torch.tensor([self.max_sequence_length]).cuda())
+        encoded_sequence = self.encoder.forward(src=torch.cat((sequence, embedding_token), dim=0))
+        embedding = encoded_sequence[-1]
+        return embedding
+
+# Maybe LSTM at some point? But i don't want to think about vanishing gradient and gradient explosion :(
+# lstm = nn.LSTM(input_size=64, hidden_size=64, num_layers=4, bias=True, batch_first=True, dropout=0, bidirectional=False)
 
 import pickle
-import time
 
-from visualization import ObjectDetectionVisualizer
+with open("dataset.pkl", "rb") as f:
+    dataset = pickle.load(f)
 
-with open("recordings/recording_010_open_drawers_long/recording.pkl", "rb") as f:
-    recording = pickle.load(f)
+# Training Loop
+model = TrajectoryEncoder().cuda()
+optim = torch.optim.Adam(model.parameters(), lr=1e-4)
 
-visualizer = ObjectDetectionVisualizer()
-speed = 2
-prev_timestamp = recording[0]['timestamp']
-for i in range(1, len(recording)):
-    step = recording[i]
-    # Simulate realistic playback
-    time.sleep((step['timestamp'] - prev_timestamp) / speed)
+for epoch in range(10):
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=True, collate_fn=lambda x: x)
+    for batch in dataloader:
+        embeddings = []
+        for (times, X, Y, Z) in batch:
+            X = torch.tensor(X)
+            Y = torch.tensor(Y)
+            Z = torch.tensor(Z)
+            xyz = torch.stack((X, Y, Z), axis=1).cuda().float()
+            embedding = model.forward(model.project_coordinates(xyz))
+            embeddings.append(embedding)
 
-    X = []
-    Y = []
-    Z = []
-    for j in range(i, min(i + 10, len(recording))):
-        pos = recording[j]['hand_position']['3d']
-        if pos is not None:
-            x, y, z = pos
-            X.append(x)
-            Y.append(y)
-            Z.append(z)
+        embeddings = torch.stack(embeddings, dim=0)
+        embeddings = embeddings / torch.linalg.norm(embeddings, dim=-1, keepdim=True)
+        scores = embeddings @ embeddings.T @ embeddings
 
-    visualizer.show(([
-        ('Current', step['hand_position']['3d'], 5, (0.0, 1.0, 0.0)),
-    ] if step['hand_position']['3d'] is not None else [])
-    + [
-        ('Target', (X, Y, Z), 5, (1.0, 1.0, 1.0)),
-    ])
-
-    prev_timestamp = step['timestamp']
+        loss = torch.nn.functional.cross_entropy(scores, torch.arange(len(batch)).cuda())
+        optim.zero_grad()
+        loss.backward()
+        optim.step()
+        
+        print(loss.item())

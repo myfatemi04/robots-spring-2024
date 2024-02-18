@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import cv2
 import numpy as np
 import pyk4a
@@ -21,8 +22,8 @@ class Camera:
     def infer_extrinsics(self, apriltag_points, apriltag_object_points):
         ret, rvec, tvec = cv2.solvePnP(apriltag_object_points, apriltag_points, self.intrinsic_matrix, self.distortion_coefficients)
         rotation_matrix, _ = cv2.Rodrigues(rvec)
-        translatoin = tvec
-        extrinsics = np.concatenate((rotation_matrix, translatoin), axis=1)
+        translation = tvec
+        extrinsics = np.concatenate((rotation_matrix, translation), axis=1)
 
         self.rvec_tvec = (rvec, tvec)
         self.extrinsic_matrix = extrinsics
@@ -58,6 +59,69 @@ class Camera:
 
     def close(self):
         self.k4a.close()
+
+@dataclass
+class VirtualCapture:
+    color: np.ndarray
+
+# For simulating playback on a video file
+class VirtualCamera:
+    def __init__(self, filename):
+        self.filename = filename
+        self.video_capture = cv2.VideoCapture(filename)
+        # Camera parameters
+        self.rvec_tvec = None
+        self.extrinsic_matrix = None
+        self.intrinsic_matrix = None
+        self.distortion_coefficients = None
+        self.original_calibration = True
+        self.prev_capture: Optional[pyk4a.PyK4ACapture] = None
+
+    def capture(self):
+        _, image_color = self.video_capture.read()
+        self.prev_capture = VirtualCapture(color=image_color)
+        return self.prev_capture
+
+    def infer_extrinsics(self, apriltag_points, apriltag_object_points):
+        ret, rvec, tvec = cv2.solvePnP(apriltag_object_points, apriltag_points, self.intrinsic_matrix, self.distortion_coefficients)
+        rotation_matrix, _ = cv2.Rodrigues(rvec)
+        translation = tvec
+        extrinsics = np.concatenate((rotation_matrix, translation), axis=1)
+
+        self.rvec_tvec = (rvec, tvec)
+        self.extrinsic_matrix = extrinsics
+
+    def project_points(self, object_points):
+        assert self.extrinsic_matrix is not None
+        
+        rvec, tvec = self.rvec_tvec
+        points, _jacobian = cv2.projectPoints(object_points, rvec, tvec, self.intrinsic_matrix, self.distance_coefficients)
+        points = points[:, 0, :]
+
+        return points
+    
+    # Useful for tasks where the AprilTag starts off occluded.
+    def export_calibration(self):
+        return {
+            'rvec_tvec': self.rvec_tvec,
+            'extrinsic_matrix': self.extrinsic_matrix,
+            'intrinsic_matrix': self.intrinsic_matrix,
+            'distortion_coefficients': self.distortion_coefficients,
+        }
+
+    def import_calibration(self, calibration):
+        self.rvec_tvec = calibration.get('rvec_tvec', None)
+        self.extrinsic_matrix = calibration.get('extrinsic_matrix', None)
+        self.intrinsic_matrix = calibration.get('intrinsic_matrix', None)
+        self.distortion_coefficients = calibration.get('distortion_coefficients', None)
+        self.original_calibration = False
+    
+    def undistort(self, image_points):
+        # Note: This undoes the intrinsic matrix as well
+        return cv2.undistortPoints(image_points.astype(np.float32), self.intrinsic_matrix, self.distortion_coefficients)
+    
+    def close(self):
+        self.video_capture.release()
 
 def triangulate(camera1: Camera, camera2: Camera, camera1_positions, camera2_positions):
     camera1_undistorted = camera1.undistort(camera1_positions)
