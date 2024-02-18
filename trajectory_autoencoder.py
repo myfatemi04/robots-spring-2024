@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.utils.data
+import tqdm
 
 """
 Here, the goal is to create a generative model
@@ -79,11 +80,12 @@ with open("dataset.pkl", "rb") as f:
 
 # Training Loop
 model = TrajectoryEncoder().cuda()
-optim = torch.optim.Adam(model.parameters(), lr=1e-4)
+optim = torch.optim.Adam(model.parameters(), lr=1e-3)
+lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=(len(dataset) // 32) * 10, eta_min=1e-5)
 
 for epoch in range(10):
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=True, collate_fn=lambda x: x)
-    for batch in dataloader:
+    for batch in (pbar := tqdm.tqdm(dataloader, total=len(dataset), desc='Training epoch ' + str(epoch + 1))):
         embeddings = []
         for (times, X, Y, Z) in batch:
             X = torch.tensor(X)
@@ -101,5 +103,8 @@ for epoch in range(10):
         optim.zero_grad()
         loss.backward()
         optim.step()
-        
-        print(loss.item())
+        lr_scheduler.step()
+
+        pbar.update(len(batch))
+        pbar.set_postfix({'loss': loss.item()})
+    pbar.close()
