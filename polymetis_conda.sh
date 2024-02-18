@@ -1,4 +1,5 @@
 #!/bin/bash
+export PS1='\w\$ '
 # >>> conda initialize >>>
 # !! Contents within this block are managed by 'conda init' !!
 __conda_setup="$('/home/huron/Repos_2/polymetis_miniconda3/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
@@ -17,3 +18,4 @@ if [ -f "/home/huron/Repos_2/polymetis_miniconda3/etc/profile.d/mamba.sh" ]; the
     . "/home/huron/Repos_2/polymetis_miniconda3/etc/profile.d/mamba.sh"
 fi
 # <<< conda initialize <<<
+conda activate polymetis

@@ -43,7 +43,7 @@ LSTM parameters:
 
 # Train the encoder with contrastive learning.
 class TrajectoryEncoder(nn.Module):
-    def __init__(self, d_model=32, nhead=2, max_sequence_length=100):
+    def __init__(self, d_model=32, nhead=2, num_layers=2, max_sequence_length=100):
         super().__init__()
 
         self.max_sequence_length = max_sequence_length
@@ -56,7 +56,7 @@ class TrajectoryEncoder(nn.Module):
                 dropout=0.1,
                 batch_first=True,
             ),
-            num_layers=2,
+            num_layers,
         )
         self.project_coordinates = nn.Linear(3, d_model)
 
@@ -79,8 +79,12 @@ with open("dataset.pkl", "rb") as f:
     dataset = pickle.load(f)
 
 # Training Loop
-model = TrajectoryEncoder().cuda()
-optim = torch.optim.Adam(model.parameters(), lr=1e-3)
+model = TrajectoryEncoder(
+    d_model=64,
+    nhead=8,
+    num_layers=4,
+).cuda()
+optim = torch.optim.Adam(model.parameters(), lr=1e-4)
 lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=(len(dataset) // 32) * 10, eta_min=1e-5)
 
 for epoch in range(10):
@@ -97,7 +101,7 @@ for epoch in range(10):
 
         embeddings = torch.stack(embeddings, dim=0)
         embeddings = embeddings / torch.linalg.norm(embeddings, dim=-1, keepdim=True)
-        scores = embeddings @ embeddings.T @ embeddings
+        scores = embeddings @ embeddings.T
 
         loss = torch.nn.functional.cross_entropy(scores, torch.arange(len(batch)).cuda())
         optim.zero_grad()

@@ -1,8 +1,11 @@
 from dataclasses import dataclass
+from typing import Optional
+
 import cv2
 import numpy as np
+import PIL.Image
 import pyk4a
-from typing import Optional
+
 
 class Camera:
     def __init__(self, k4a: pyk4a.PyK4A):
@@ -32,7 +35,7 @@ class Camera:
         assert self.extrinsic_matrix is not None
         
         rvec, tvec = self.rvec_tvec
-        points, _jacobian = cv2.projectPoints(object_points, rvec, tvec, self.intrinsic_matrix, self.distance_coefficients)
+        points, _jacobian = cv2.projectPoints(object_points, rvec, tvec, self.intrinsic_matrix, self.distortion_coefficients)
         points = points[:, 0, :]
 
         return points
@@ -64,11 +67,17 @@ class Camera:
 class VirtualCapture:
     color: np.ndarray
 
-# For simulating playback on a video file
+# For simulating playback on a video file.
+# If `filename` is .png, we just return that .png indefinitely...
 class VirtualCamera:
     def __init__(self, filename):
         self.filename = filename
-        self.video_capture = cv2.VideoCapture(filename)
+        if filename.endswith(".png"):
+            self.image = np.array(PIL.Image.open(filename))
+            self.video_capture = None
+        else:
+            self.image = None
+            self.video_capture = cv2.VideoCapture(filename)
         # Camera parameters
         self.rvec_tvec = None
         self.extrinsic_matrix = None
@@ -78,8 +87,11 @@ class VirtualCamera:
         self.prev_capture: Optional[pyk4a.PyK4ACapture] = None
 
     def capture(self):
-        _, image_color = self.video_capture.read()
-        self.prev_capture = VirtualCapture(color=image_color)
+        if self.image is not None:
+            self.prev_capture = VirtualCapture(color=self.image)
+        else:
+            _, image_color = self.video_capture.read()
+            self.prev_capture = VirtualCapture(color=image_color)
         return self.prev_capture
 
     def infer_extrinsics(self, apriltag_points, apriltag_object_points):
@@ -95,7 +107,7 @@ class VirtualCamera:
         assert self.extrinsic_matrix is not None
         
         rvec, tvec = self.rvec_tvec
-        points, _jacobian = cv2.projectPoints(object_points, rvec, tvec, self.intrinsic_matrix, self.distance_coefficients)
+        points, _jacobian = cv2.projectPoints(object_points, rvec, tvec, self.intrinsic_matrix, self.distortion_coefficients)
         points = points[:, 0, :]
 
         return points
