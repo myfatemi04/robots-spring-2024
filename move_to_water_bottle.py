@@ -125,11 +125,24 @@ def cuda(dictionary):
         k: v.cuda() if isinstance(v, torch.Tensor) else v for k, v in dictionary.items()
     }
 
+allow_movement_to_water_bottle = False
+
+def handle_click(event, x, y, flags, param):
+    global allow_movement_to_water_bottle
+    if event == cv2.EVENT_LBUTTONDBLCLK:
+        # allow movement to water bottle
+        allow_movement_to_water_bottle = True
+
+
 processor = CLIPSegProcessor.from_pretrained("CIDAS/clipseg-rd64-refined")
 model = CLIPSegForImageSegmentation.from_pretrained("CIDAS/clipseg-rd64-refined").cuda()
 
 left, right = get_cameras()
-prompts = ["water bottle"]
+
+display_with_matplotlib = False
+
+Y_values = torch.tensor(np.repeat(np.arange(0, 720)[:, np.newaxis], 1280, axis=1), device='cuda')
+X_values = torch.tensor(np.repeat(np.arange(0, 1280)[np.newaxis, :], 720, axis=0), device='cuda')
 
 try:
     while True:
@@ -138,21 +151,57 @@ try:
         left_color = np.ascontiguousarray(left_cap.color[:, :, :3])
         right_color = np.ascontiguousarray(right_cap.color[:, :, :3])
 
-        inputs = processor(text=prompts, images=[left_color] * len(prompts), padding="max_length", return_tensors="pt")
+        inputs = processor(text=["water bottle"], images=[left_color], padding="max_length", return_tensors="pt")
         # predict
         with torch.no_grad():
             outputs = model(**cuda(inputs))
             # shape after unsqueeze: [prompt_number, image_number]
-            preds = outputs.logits
-        # display segmentation map.
-        heatmap = torch.sigmoid(preds).detach().cpu().numpy()
-        heatmap_resized = cv2.resize(heatmap, dsize=(1280, 720))
+            # however, in this case, it will just be (image_number,)
+            Lpred = outputs.logits
 
+        inputs = processor(text=["water bottle"], images=[right_color], padding="max_length", return_tensors="pt")
+        # predict
+        with torch.no_grad():
+            outputs = model(**cuda(inputs))
+            # shape after unsqueeze: [prompt_number, image_number]
+            # however, in this case, it will just be (image_number,)
+            Rpred = outputs.logits
+        
+        Lheatmap = torch.sigmoid(Lpred).detach().cpu().numpy()
+        Lheatmap_resized = cv2.resize(Lheatmap, dsize=(1280, 720))
+        Lheatmap_resized_tensor = torch.tensor(Lheatmap_resized, device='cuda')
+        Lhm_total = Lheatmap_resized_tensor.sum()
+
+        Rheatmap = torch.sigmoid(Rpred).detach().cpu().numpy()
+        Rheatmap_resized = cv2.resize(Rheatmap, dsize=(1280, 720))
+        Rheatmap_resized_tensor = torch.tensor(Rheatmap_resized, device='cuda')
+        Rhm_total = Rheatmap_resized_tensor.sum()
+
+        # find center of mass of heatmap
+        (LY, LX), = (Lheatmap_resized_tensor == Lheatmap_resized_tensor.max()).nonzero()
+        (RY, RX), = (Rheatmap_resized_tensor == Rheatmap_resized_tensor.max()).nonzero()
+        # LY = (Y_values * Lheatmap_resized_tensor).sum() / Lhm_total
+        # LX = (X_values * Lheatmap_resized_tensor).sum() / Lhm_total
+        # RY = (Y_values * Lheatmap_resized_tensor).sum() / Rhm_total
+        # RX = (X_values * Lheatmap_resized_tensor).sum() / Rhm_total
+
+        cv2.circle(left_color, (int(LX), int(LY)), 5, (0, 255, 0), 3)
+        cv2.circle(right_color, (int(RX), int(RY)), 5, (0, 255, 0), 3)
+
+        cv2.imshow("Left", left_color)
+        cv2.imshow("Right", right_color)
+
+    # if display_with_matplotlib:
         plt.clf()
+        plt.subplot(1, 2, 1)
         plt.title("Left Camera Prediction")
         plt.imshow(left_color[:, :, ::-1])
-        plt.imshow(heatmap_resized, alpha=heatmap_resized)
-        plt.pause(0.15)
+        plt.imshow(Lheatmap_resized, alpha=Lheatmap_resized)
+        plt.subplot(1, 2, 2)
+        plt.title("Right Camera Prediction")
+        plt.imshow(right_color[:, :, ::-1])
+        plt.imshow(Rheatmap_resized, alpha=Rheatmap_resized)
+        plt.pause(0.05)
 
         if cv2.waitKey(1) == ord('q'):
             break
