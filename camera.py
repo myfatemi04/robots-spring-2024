@@ -136,6 +136,8 @@ class VirtualCamera:
         self.video_capture.release()
 
 def triangulate(camera1: Camera, camera2: Camera, camera1_positions, camera2_positions):
+    assert camera1.extrinsic_matrix is not None, "Camera 1 extrinsic matrix has not been calibrated."
+    assert camera2.extrinsic_matrix is not None, "Camera 2 extrinsic matrix has not been calibrated."
     camera1_undistorted = camera1.undistort(camera1_positions)
     camera2_undistorted = camera2.undistort(camera2_positions)
     # `undistort` undoes the intrinsic matrix
