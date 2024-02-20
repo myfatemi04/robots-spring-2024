@@ -151,3 +151,14 @@ def triangulate(camera1: Camera, camera2: Camera, camera1_positions, camera2_pos
     # Divide xyz by homogenous points
     triangulated = triangulated_homogenous[:, :3] / triangulated_homogenous[:, -1]
     return triangulated
+
+def get_cameras():
+    k4a_devices = [pyk4a.PyK4A(device_id=i) for i in [0, 1]]
+    k4a_device_map = {}
+    for device in k4a_devices:
+        device.start()
+        k4a_device_map[device.serial] = device
+
+    left = Camera(k4a_device_map['000256121012'])
+    right = Camera(k4a_device_map['000243521012'])
+    return left, right

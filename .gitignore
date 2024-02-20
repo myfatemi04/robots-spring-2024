@@ -15,3 +15,6 @@ recordings
 *.pkl
 generative-models
 human_demonstrations
+labels
+control_labels
+*.zip

@@ -16,7 +16,7 @@ import PIL.Image
 from transformers import CLIPSegProcessor, CLIPSegForImageSegmentation
 import torch
 
-from camera import Camera
+from camera import Camera, get_cameras
 
 class DataCollector:
     def __init__(self, left: Camera, right: Camera, outdir: str):
@@ -101,17 +101,6 @@ class DataCollector:
 
             if cv2.waitKey(1) == ord('q'):
                 break
-
-def get_cameras():
-    k4a_devices = [pyk4a.PyK4A(device_id=i) for i in [0, 1]]
-    k4a_device_map = {}
-    for device in k4a_devices:
-        device.start()
-        k4a_device_map[device.serial] = device
-
-    left = Camera(k4a_device_map['000256121012'])
-    right = Camera(k4a_device_map['000243521012'])
-    return left, right
 
 def collect_data():
     left, right = get_cameras()
