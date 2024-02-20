@@ -35,11 +35,7 @@ left_pt = None
 right_pt = None
 
 def select_pixel(side, event, x, y, flags, param):
-    # grab references to the global variables
     global left_pt, right_pt
-    # if the left mouse button was clicked, record the starting
-    # (x, y) coordinates and indicate that cropping is being
-    # performed
     if event == cv2.EVENT_LBUTTONUP:
         if side == 'Left':
             left_pt = (x, y)

@@ -14,3 +14,4 @@ ghp
 recordings
 *.pkl
 generative-models
+human_demonstrations
