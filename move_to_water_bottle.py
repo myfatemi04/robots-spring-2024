@@ -9,9 +9,12 @@ Will start by just collecting a bunch of images.
 from functools import partial
 import os
 import cv2
+from matplotlib import pyplot as plt
 import numpy as np
 import pyk4a
 import PIL.Image
+from transformers import CLIPSegProcessor, CLIPSegForImageSegmentation
+import torch
 
 from camera import Camera
 
@@ -99,7 +102,7 @@ class DataCollector:
             if cv2.waitKey(1) == ord('q'):
                 break
 
-def collect_data():
+def get_cameras():
     k4a_devices = [pyk4a.PyK4A(device_id=i) for i in [0, 1]]
     k4a_device_map = {}
     for device in k4a_devices:
@@ -108,10 +111,73 @@ def collect_data():
 
     left = Camera(k4a_device_map['000256121012'])
     right = Camera(k4a_device_map['000243521012'])
+    return left, right
+
+def collect_data():
+    left, right = get_cameras()
 
     capture_number = 1
     collector = DataCollector(left, right, f"human_demonstrations/001_move_to_water_bottle/capture_{capture_number:03d}")
     collector.start()
 
-if __name__ == '__main__':
-    collect_data()
+def cuda(dictionary):
+    return {
+        k: v.cuda() if isinstance(v, torch.Tensor) else v for k, v in dictionary.items()
+    }
+
+processor = CLIPSegProcessor.from_pretrained("CIDAS/clipseg-rd64-refined")
+model = CLIPSegForImageSegmentation.from_pretrained("CIDAS/clipseg-rd64-refined").cuda()
+
+left, right = get_cameras()
+prompts = ["water bottle"]
+
+try:
+    while True:
+        left_cap = left.capture()
+        right_cap = right.capture()
+        left_color = np.ascontiguousarray(left_cap.color[:, :, :3])
+        right_color = np.ascontiguousarray(right_cap.color[:, :, :3])
+
+        inputs = processor(text=prompts, images=[left_color] * len(prompts), padding="max_length", return_tensors="pt")
+        # predict
+        with torch.no_grad():
+            outputs = model(**cuda(inputs))
+            # shape after unsqueeze: [prompt_number, image_number]
+            preds = outputs.logits
+        # display segmentation map.
+        heatmap = torch.sigmoid(preds).detach().cpu().numpy()
+        heatmap_resized = cv2.resize(heatmap, dsize=(1280, 720))
+
+        plt.clf()
+        plt.title("Left Camera Prediction")
+        plt.imshow(left_color[:, :, ::-1])
+        plt.imshow(heatmap_resized, alpha=heatmap_resized)
+        plt.pause(0.15)
+
+        if cv2.waitKey(1) == ord('q'):
+            break
+
+finally:
+    left.close()
+    right.close()
+
+# import torch
+# import torch.nn as nn
+# import transformers
+
+# clip_preprocessor = transformers.CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+
+# class DetectionModel(nn.Module):
+#     def __init__(self, clip: transformers.CLIPVisionModel):
+#         super().__init__(self)
+
+#         self.clip = clip
+
+#         # Lock all but last 2 layers
+
+#     def forward(self, image: torch.Tensor):
+        
+#         pass
+
+# if __name__ == '__main__':
+#     collect_data()
