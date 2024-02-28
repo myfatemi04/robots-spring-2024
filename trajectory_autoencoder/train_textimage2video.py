@@ -831,8 +831,6 @@ def main():
     '''
 
     def collate_fn(batch):
-        nonlocal tokenizer
-
         # input: (text, image_sequence)[]
         # return: (text batch, text attention masks, text sequence lengths, images)
         text_batch = [text for (text, imgseq) in batch]
@@ -840,7 +838,7 @@ def main():
         text_tokens = tokenization['input_ids']
         text_attention_masks = tokenization['attention_mask']
 
-        imgseqs = [vae_image_processor(imgseq) for (_, imgseq) in batch]
+        imgseqs = [vae_image_processor.preprocess(imgseq, height=args.image_height, width=args.image_width) for (_, imgseq) in batch]
 
         return (text_tokens, text_attention_masks, torch.stack(imgseqs))
     
@@ -1019,10 +1017,18 @@ def main():
                 Target image sequence will be 25 samples long. If we want to
                 extend, maybe we can finetune for that. If some samples are shorter
                 for some reason, we can change our attention mask and loss targets.
+
+                image_sequences: [batch_size, n_images, channels, height, width]
                 """
-                (texts, text_attention_masks, initial_images, target_image_sequences) = batch
+                (texts, text_attention_masks, image_sequences) = batch
+
+                # Convert dataloaded stuff to accelerator
+                texts = texts.to(device=accelerator.device, dtype=torch.long)
+                text_attention_masks = text_attention_masks.to(device=accelerator.device, dtype=torch.bool)
+                image_sequences = image_sequences.to(device=accelerator.device, dtype=weight_dtype)
 
                 # Question: Do I need to scale this?
+                initial_images = image_sequences[:, 0, :]
                 initial_image_latents = vae.encode(initial_images).latent_dist.mode()
 
                 target_image_sequences = target_image_sequences.to(weight_dtype)
