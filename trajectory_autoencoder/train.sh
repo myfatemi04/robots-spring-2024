@@ -1,11 +1,18 @@
 #!/bin/sh
 
-# Before running, make sure to call `accelerate config`.
+# Before running, make sure to call `accelerate config` (only needs to be run once).
+
+# Make sure CUDA is loaded. This will set the CUDA_HOME variable.
+# module load cuda/12.2.2
 
 # gradient checkpointing is a way to perform backpropagation in a more memory efficient way
 
+
 export HUGGINGFACE_HUB_CACHE=/scratch/$USER/huggingface_cache
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export LD_LIBRARY_PATH=/home/gsk6me/miniconda3/envs/py310/lib:$LD_LIBRARY_PATH
+# https://github.com/wandb/wandb/issues/5214
+export WANDB__SERVICE_WAIT=300
 
 accelerate launch train_textimage2video.py \
 	--pretrained_model_name_or_path stabilityai/stable-video-diffusion-img2vid-xt \
