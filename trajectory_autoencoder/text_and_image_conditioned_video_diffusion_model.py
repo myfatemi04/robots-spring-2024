@@ -94,8 +94,6 @@ class VisualTrajectorySynthesizer(StableVideoDiffusionPipeline):
         num_frames = num_frames if num_frames is not None else self.unet.config.num_frames
         decode_chunk_size = decode_chunk_size if decode_chunk_size is not None else num_frames
 
-        image = image
-
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(image, height, width)
 

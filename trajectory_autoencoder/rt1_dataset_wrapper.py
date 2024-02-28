@@ -22,9 +22,11 @@ class RT1Dataset(torch.utils.data.Dataset):
         # Returns a list of images and a natural language instruction
         steps = self._dataset['train'][index]['steps']
         images = []
-        instruction = steps[0]['observation']['natural_language_instruction']
+        instruction: bytes = steps[0]['observation']['natural_language_instruction']
+        instruction = instruction.decode('utf-8')
         for i in range(len(steps)):
-            images.append(steps[i]['observation']['image'])
+            # image needs to be scaled to the range 0.0-1.0.
+            images.append(torch.tensor(steps[i]['observation']['image'] / 255.0))
 
         return (instruction, images)
 

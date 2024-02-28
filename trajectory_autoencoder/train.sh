@@ -3,7 +3,7 @@
 # Before running, make sure to call `accelerate config` (only needs to be run once).
 
 # Make sure CUDA is loaded. This will set the CUDA_HOME variable.
-# module load cuda/12.2.2
+module load cuda/12.2.2
 
 # gradient checkpointing is a way to perform backpropagation in a more memory efficient way
 
