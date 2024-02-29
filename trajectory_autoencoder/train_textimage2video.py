@@ -876,6 +876,8 @@ def main():
         text_attention_masks = tokenization['attention_mask']
 
         imgseqs = [vae_image_processor.preprocess(imgseq, height=args.image_height, width=args.image_width) for (_, imgseq) in batch]
+        minseqlen = min([len(x) for x in imgseqs])
+        imgseqs = [seq[:minseqlen] for seq in imgseqs]
 
         return (text_tokens, text_attention_masks, torch.stack(imgseqs))
     

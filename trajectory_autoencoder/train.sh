@@ -28,12 +28,12 @@ export OMP_NUM_THREADS=16
 # Use a larger batch because of smaller images.
 image_width=320
 image_height=256
-train_batch_size=4
+train_batch_size=8
 
-# Overfit to 10 samples initially.
-max_train_samples=10
+# Train on first 200 samples.
+max_train_samples=200
 
-# Use fewer trainable parameters. Using rank=16 reduces trainable parameters significantly.
+# Using rank=16 reduces to ~6m trainable parameters.
 LoRA_rank=16
 
 accelerate launch \
