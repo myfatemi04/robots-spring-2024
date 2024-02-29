@@ -659,7 +659,10 @@ def main():
             # only upcast trainable parameters (LoRA) into fp32
             cast_training_params(unet, dtype=torch.float32)
 
-        trainable_parameters = filter(lambda p: p.requires_grad, unet.parameters())
+        trainable_parameters = [p for p in unet.parameters() if p.requires_grad]
+        
+        logging.info("Using LoRA: Rank = %s", args.rank)
+        logging.info("Number of trainable parameters: %d", sum(p.numel() for p in trainable_parameters))
     else:
         trainable_parameters = unet.parameters()
 
@@ -877,6 +880,15 @@ def main():
         return (text_tokens, text_attention_masks, torch.stack(imgseqs))
     
     train_dataset = RT1Dataset(args.rt1_dataset_root)
+    # Allow a maximum number of training samples for quick debugging.
+    # Question: Why is `accelerator.main_process_first()` used here?
+    with accelerator.main_process_first():
+        if args.max_train_samples is not None:
+            # Create random torch.utils.data.Subset of original dataset.
+            # indices_to_keep = torch.randperm(len(train_dataset))[:args.max_train_samples]
+            # train_dataset = torch.utils.data.Subset(train_dataset, indices_to_keep)
+            train_dataset = torch.utils.data.Subset(train_dataset, list(range(args.max_train_samples)))
+
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         shuffle=True,
@@ -884,14 +896,6 @@ def main():
         num_workers=args.dataloader_num_workers,
         collate_fn=collate_fn
     )
-    
-    # Allow a maximum number of training samples for quick debugging.
-    # Question: Why is `accelerator.main_process_first()` used here?
-    with accelerator.main_process_first():
-        if args.max_train_samples is not None:
-            # Create random torch.utils.data.Subset of original dataset.
-            indices_to_keep = torch.randperm(len(train_dataset))[:args.max_train_samples]
-            train_dataset = torch.utils.data.Subset(train_dataset, indices_to_keep)
 
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
@@ -1125,6 +1129,11 @@ def main():
                 # This is a tensor of [bsz, d_model] --unsqueeze-> [bsz, 1, d_model]
                 with torch.no_grad():
                     encoder_hidden_states = text_encoder.forward(input_ids=texts, attention_mask=text_attention_masks).pooler_output.unsqueeze(1)
+
+                    # Randomly set 10% of the hidden states to 0.
+                    # This is for classifier-free guidance.
+                    classifier_free_mask = torch.rand(encoder_hidden_states.shape[0]) < 0.1
+                    encoder_hidden_states[classifier_free_mask] = 0
 
                 # Get the target for loss depending on the prediction type
                 if args.prediction_type is not None:

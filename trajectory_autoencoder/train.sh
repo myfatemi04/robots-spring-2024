@@ -15,6 +15,26 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export LD_LIBRARY_PATH=/home/gsk6me/miniconda3/envs/py310/lib:$LD_LIBRARY_PATH
 # https://github.com/wandb/wandb/issues/5214
 export WANDB__SERVICE_WAIT=300
+# There are 128 cores on this node in total; this means 16 threads per GPU.
+# The number of cores is accessible via `lscpu`.
+export OMP_NUM_THREADS=16
+
+# Set the image width and height
+# image_width=1024
+# image_height=576
+# train_batch_size=1
+
+# Use the original size of RT-1
+# Use a larger batch because of smaller images.
+image_width=320
+image_height=256
+train_batch_size=4
+
+# Overfit to 10 samples initially.
+max_train_samples=10
+
+# Use fewer trainable parameters. Using rank=16 reduces trainable parameters significantly.
+LoRA_rank=16
 
 accelerate launch \
 	--main_process_port 29505 \
@@ -23,12 +43,13 @@ accelerate launch \
 	--pretrained_text_encoder_model_name_or_path laion/CLIP-ViT-H-14-laion2B-s32B-b79K \
 	--rt1_dataset_root /scratch/gsk6me/WORLDMODELS/datasets/rt-1-data-release \
 	--input_perturbation 0.1 \
-  --train_batch_size 1 \
+  --train_batch_size $train_batch_size \
   --gradient_accumulation_steps 4 \
 	--cache_dir /scratch/gsk6me/huggingface_cache \
-	--image_width 1024 \
-	--image_height 576 \
+	--image_width $image_width \
+	--image_height $image_height \
 	--gradient_checkpointing \
-	--rank 16 \
+	--rank $LoRA_rank \
 	--report_to wandb \
-	--mixed_prediction fp16
+	--mixed_precision fp16 \
+	--max_train_samples $max_train_samples
