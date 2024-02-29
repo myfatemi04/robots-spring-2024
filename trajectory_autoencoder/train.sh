@@ -8,6 +8,7 @@ module load cuda/12.2.2
 # --main_process_port 0 automatically selects a port for the main process. However, I found that
 #   this can cause the process to hang, so I just replaced with a reasonable alternative port.
 # --gradient_checkpointing is a way to perform backpropagation in a more memory efficient way.
+# --rank specifies the rank for LoRA.
 
 export HUGGINGFACE_HUB_CACHE=/scratch/$USER/huggingface_cache
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -28,4 +29,5 @@ accelerate launch \
 	--image_width 1024 \
 	--image_height 576 \
 	--gradient_checkpointing \
+	--rank 16 \
 	--report_to wandb

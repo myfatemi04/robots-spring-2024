@@ -37,6 +37,7 @@ from accelerate.utils import ProjectConfiguration, set_seed
 from datasets import load_dataset
 from huggingface_hub import create_repo, upload_folder
 from packaging import version
+from peft import LoraConfig
 from torchvision import transforms
 from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
@@ -45,7 +46,7 @@ from transformers.utils import ContextManagers
 import diffusers
 from diffusers import AutoencoderKLTemporalDecoder, DDPMScheduler, StableVideoDiffusionPipeline, UNetSpatioTemporalConditionModel
 from diffusers.optimization import get_scheduler
-from diffusers.training_utils import EMAModel, compute_snr
+from diffusers.training_utils import EMAModel, compute_snr, cast_training_params
 from diffusers.image_processor import VaeImageProcessor
 from diffusers.utils import check_min_version, deprecate, is_wandb_available, make_image_grid
 from diffusers.utils.hub_utils import load_or_create_model_card, populate_model_card
@@ -201,6 +202,13 @@ def parse_args():
         default=None,
         required=True,
         help="Path to existing RT-1 dataset download."
+    )
+    parser.add_argument(
+        "--rank",
+        type=int,
+        default=None,
+        required=False,
+        help="Rank to use for Low-Rank Adaptation (LoRA)"
     )
     parser.add_argument(
         "--input_perturbation", type=float, default=0, help="The scale of input perturbation. Recommended 0.1."
@@ -630,6 +638,29 @@ def main():
     )
     unet_original_config = unet.config
 
+    # https://github.com/huggingface/peft/blob/main/docs/source/task_guides/lora_based_methods.md
+    # https://github.com/huggingface/diffusers/blob/main/examples/text_to_image/train_text_to_image_lora.py
+    if args.rank:
+        # Disable grad for original U-net parameters
+        unet.requires_grad_(False)
+        for param in unet.parameters():
+            param.requires_grad_(False)
+
+        unet_lora_config = LoraConfig(
+            r=args.rank,
+            lora_alpha=args.rank,
+            init_lora_weights="gaussian",
+            target_modules=["to_k", "to_q", "to_v", "to_out.0"],
+        )
+        unet.add_adapter(unet_lora_config)
+        if args.mixed_precision == "fp16":
+            # only upcast trainable parameters (LoRA) into fp32
+            cast_training_params(unet, dtype=torch.float32)
+
+        trainable_parameters = filter(lambda p: p.requires_grad, unet.parameters())
+    else:
+        trainable_parameters = unet.parameters()
+
     # Freeze vae and text_encoder and set unet to trainable
     vae.requires_grad_(False)
     text_encoder.requires_grad_(False)
@@ -717,7 +748,7 @@ def main():
         optimizer_cls = torch.optim.AdamW
 
     optimizer = optimizer_cls(
-        unet.parameters(),
+        trainable_parameters,
         lr=args.learning_rate,
         betas=(args.adam_beta1, args.adam_beta2),
         weight_decay=args.adam_weight_decay,
