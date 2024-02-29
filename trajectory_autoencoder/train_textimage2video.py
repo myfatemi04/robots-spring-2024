@@ -1054,43 +1054,43 @@ def main():
                         )
                         target_image_counter += target_image_encode_batch_size
                     target_latent_sequences_flat = torch.cat(batches, dim=0)
+                # Reshape the flat latent variables to original
+                target_latent_sequences = target_latent_sequences_flat.reshape(batch_size, n_images, *target_latent_sequences_flat.shape[1:])
 
                 # Sample noise that we'll add to the latents.
                 # Add the noise to the "flattened" latent variables.
-                noise = torch.randn_like(target_latent_sequences_flat)
+                noise = torch.randn_like(target_latent_sequences)
                 if args.noise_offset:
                     # https://www.crosslabs.org//blog/diffusion-with-offset-noise
                     noise += args.noise_offset * torch.randn(
-                        (target_latent_sequences_flat.shape[0], target_latent_sequences_flat.shape[1], 1, 1),
-                        device=target_latent_sequences_flat.device
+                        (target_latent_sequences.shape[0], target_latent_sequences.shape[1], 1, 1),
+                        device=target_latent_sequences.device
                     )
                 if args.input_perturbation:
                     new_noise = noise + args.input_perturbation * torch.randn_like(noise)
 
-                # Sample a random timestep for each image
+                # Sample a random timestep for each sequence.
+                # All images in the same sequence must have the
+                # same timestep.
                 # Make sure the device matches the latents
-                timesteps_flat = torch.randint(
+                timesteps = torch.randint(
                     0, noise_scheduler.config.num_train_timesteps,
-                    (target_latent_sequences_flat.shape[0],),
+                    (batch_size,),
                     device=target_latent_sequences_flat.device
                 )
-                timesteps_flat = timesteps_flat.long()
+                timesteps = timesteps.long()
 
                 # Add noise to the latents according to the noise magnitude at each timestep
                 # (this is the forward diffusion process)
                 if args.input_perturbation:
-                    noisy_latent_sequences_flat = noise_scheduler.add_noise(target_latent_sequences_flat, new_noise, timesteps_flat)
+                    noisy_latent_sequences = noise_scheduler.add_noise(target_latent_sequences, new_noise, timesteps)
                 else:
-                    noisy_latent_sequences_flat = noise_scheduler.add_noise(target_latent_sequences_flat, noise, timesteps_flat)
-
-                # Reshape the sequence of images back into the original shape of [n_batches, seqlen]
-                noisy_latent_sequences = noisy_latent_sequences_flat.reshape(batch_size, n_images, *noisy_latent_sequences_flat.shape[1:])
-                target_latent_sequences = target_latent_sequences_flat.reshape(batch_size, n_images, *target_latent_sequences_flat.shape[1:])
-                timesteps = timesteps_flat.reshape(batch_size, n_images)
+                    noisy_latent_sequences = noise_scheduler.add_noise(target_latent_sequences, noise, timesteps)
 
                 # Get the text embedding sequences for conditioning.
+                # Right now, just use pooler output; but at some point, would like to condition on all input tokens.
                 # This is a tensor of [bsz, max_sequence_length, d_model]
-                encoder_hidden_states = text_encoder.forward(input_ids=texts, attention_mask=text_attention_masks, return_dict=False)[0]
+                encoder_hidden_states = text_encoder.forward(input_ids=texts, attention_mask=text_attention_masks).pooler_output
 
                 # Get the target for loss depending on the prediction type
                 if args.prediction_type is not None:
@@ -1101,7 +1101,7 @@ def main():
                 if noise_scheduler.config.prediction_type == "epsilon":
                     target = noise
                 elif noise_scheduler.config.prediction_type == "v_prediction":
-                    target = noise_scheduler.get_velocity(target_latent_sequences, noise, timesteps_flat)
+                    target = noise_scheduler.get_velocity(target_latent_sequences, noise, timesteps)
                 else:
                     raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
@@ -1116,8 +1116,15 @@ def main():
                     num_videos_per_prompt=1,
                     do_classifier_free_guidance=False,
                 )
+                added_time_ids = added_time_ids.to(device=accelerator.device)
                 # (bsz, nframes, d_model) -> (bsz, nframes, d_model * 2)
                 latent_model_input = torch.cat([noisy_latent_sequences, initial_image_latents.unsqueeze(1).repeat(1, n_images, 1, 1, 1)], dim=2)
+
+                assert unet.device == latent_model_input.device, "latent_model_input.device is " + str(latent_model_input.device)
+                assert unet.device == timesteps.device, "timesteps.device is " + str(timesteps.device)
+                assert unet.device == encoder_hidden_states.device, "encoder_hidden_states.device is " + str(encoder_hidden_states.device)
+                assert unet.device == added_time_ids.device, "added_time_ids.device is " + str(added_time_ids.device)
+
                 model_pred = unet(latent_model_input, timesteps, encoder_hidden_states, added_time_ids, return_dict=False)[0]
 
                 if args.snr_gamma is None:
@@ -1126,8 +1133,8 @@ def main():
                     # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
                     # Since we predict the noise instead of x_0, the original formulation is slightly changed.
                     # This is discussed in Section 4.2 of the same paper.
-                    snr = compute_snr(noise_scheduler, timesteps_flat)
-                    mse_loss_weights = torch.stack([snr, args.snr_gamma * torch.ones_like(timesteps_flat)], dim=1).min(
+                    snr = compute_snr(noise_scheduler, timesteps)
+                    mse_loss_weights = torch.stack([snr, args.snr_gamma * torch.ones_like(timesteps)], dim=1).min(
                         dim=1
                     )[0]
                     if noise_scheduler.config.prediction_type == "epsilon":
