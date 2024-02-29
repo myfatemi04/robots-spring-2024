@@ -634,7 +634,9 @@ def main():
         vae_image_processor = VaeImageProcessor(vae_scale_factor=vae_scale_factor)
 
     unet: UNetSpatioTemporalConditionModel = UNetSpatioTemporalConditionModel.from_pretrained( # type: ignore
-        args.pretrained_model_name_or_path, subfolder="unet", revision=args.non_ema_revision
+        args.pretrained_model_name_or_path,
+        subfolder="unet",
+        revision=args.non_ema_revision,
     )
     unet_original_config = unet.config
 

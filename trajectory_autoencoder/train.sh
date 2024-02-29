@@ -30,4 +30,5 @@ accelerate launch \
 	--image_height 576 \
 	--gradient_checkpointing \
 	--rank 16 \
-	--report_to wandb
+	--report_to wandb \
+	--mixed_prediction fp16
