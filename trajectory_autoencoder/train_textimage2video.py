@@ -1089,8 +1089,9 @@ def main():
 
                 # Get the text embedding sequences for conditioning.
                 # Right now, just use pooler output; but at some point, would like to condition on all input tokens.
-                # This is a tensor of [bsz, max_sequence_length, d_model]
-                encoder_hidden_states = text_encoder.forward(input_ids=texts, attention_mask=text_attention_masks).pooler_output
+                # This is a tensor of [bsz, d_model] --unsqueeze-> [bsz, 1, d_model]
+                with torch.no_grad():
+                    encoder_hidden_states = text_encoder.forward(input_ids=texts, attention_mask=text_attention_masks).pooler_output.unsqueeze(1)
 
                 # Get the target for loss depending on the prediction type
                 if args.prediction_type is not None:

@@ -5,7 +5,8 @@
 # Make sure CUDA is loaded. This will set the CUDA_HOME variable.
 module load cuda/12.2.2
 
-# --main_process_port 0 automatically selects a port for the main process.
+# --main_process_port 0 automatically selects a port for the main process. However, I found that
+#   this can cause the process to hang, so I just replaced with a reasonable alternative port.
 # --gradient_checkpointing is a way to perform backpropagation in a more memory efficient way.
 
 export HUGGINGFACE_HUB_CACHE=/scratch/$USER/huggingface_cache
