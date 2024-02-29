@@ -628,6 +628,7 @@ def main():
     unet: UNetSpatioTemporalConditionModel = UNetSpatioTemporalConditionModel.from_pretrained( # type: ignore
         args.pretrained_model_name_or_path, subfolder="unet", revision=args.non_ema_revision
     )
+    unet_original_config = unet.config
 
     # Freeze vae and text_encoder and set unet to trainable
     vae.requires_grad_(False)
@@ -975,11 +976,9 @@ def main():
         num_videos_per_prompt,
         do_classifier_free_guidance,
     ):
-        nonlocal unet
-
         add_time_ids = [fps, motion_bucket_id, noise_aug_strength]
 
-        passed_add_embed_dim = unet.config.addition_time_embed_dim * len(add_time_ids)
+        passed_add_embed_dim = unet_original_config.addition_time_embed_dim * len(add_time_ids)
         expected_add_embed_dim = unet.add_embedding.linear_1.in_features
 
         if expected_add_embed_dim != passed_add_embed_dim:
@@ -1029,40 +1028,68 @@ def main():
 
                 # Question: Do I need to scale this?
                 initial_images = image_sequences[:, 0, :]
+                # Note: VAE encoder is single-image, VAE decoder is temporal
                 initial_image_latents = vae.encode(initial_images).latent_dist.mode()
 
-                target_image_sequences = target_image_sequences.to(weight_dtype)
-                target_latent_sequences = vae.encode(target_image_sequences).latent_dist.sample() * vae.config.scaling_factor
-                
-                # Sample noise that we'll add to the latents
+                # Initialize the latent embeddings in a flat manner.
+                # Infer target latent embeddings.
+                # This could lowkey be pre-computed or computed in parallel.
+                # I guess it depends on if we also want to train the VAE (but I'm assuming
+                # that the VAE is trained *before* the diffusion step)
+                torch.cuda.empty_cache()
+                target_image_sequences = image_sequences.to(device=accelerator.device, dtype=weight_dtype)
+                batch_size = target_image_sequences.shape[0]
+                n_images = target_image_sequences.shape[1]
+                target_image_sequences_flat = target_image_sequences.reshape(batch_size * n_images, *target_image_sequences.shape[2:])
+                with torch.no_grad():
+                    # do this in batches
+                    batches = []
+                    target_image_counter = 0
+                    target_image_encode_batch_size = 8
+                    while target_image_counter < len(target_image_sequences_flat):
+                        batches.append(
+                            vae.encode(
+                                target_image_sequences_flat[target_image_counter:target_image_counter + target_image_encode_batch_size]
+                            ).latent_dist.sample() * vae.config.scaling_factor
+                        )
+                        target_image_counter += target_image_encode_batch_size
+                    target_latent_sequences_flat = torch.cat(batches, dim=0)
+
+                # Sample noise that we'll add to the latents.
+                # Add the noise to the "flattened" latent variables.
                 noise = torch.randn_like(target_latent_sequences)
                 if args.noise_offset:
                     # https://www.crosslabs.org//blog/diffusion-with-offset-noise
                     noise += args.noise_offset * torch.randn(
-                        (target_latent_sequences.shape[0], target_latent_sequences.shape[1], 1, 1),
-                        device=target_latent_sequences.device
+                        (target_latent_sequences_flat.shape[0], target_latent_sequences_flat.shape[1], 1, 1),
+                        device=target_latent_sequences_flat.device
                     )
                 if args.input_perturbation:
                     new_noise = noise + args.input_perturbation * torch.randn_like(noise)
 
-                bsz = target_latent_sequences.shape[0]
-                seqlen = 25
-
                 # Sample a random timestep for each image
                 # Make sure the device matches the latents
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz, seqlen), device=target_latent_sequences.device)
+                timesteps = torch.randint(
+                    0, noise_scheduler.config.num_train_timesteps,
+                    (target_latent_sequences_flat.shape[0],),
+                    device=target_latent_sequences.device
+                )
                 timesteps = timesteps.long()
 
                 # Add noise to the latents according to the noise magnitude at each timestep
                 # (this is the forward diffusion process)
                 if args.input_perturbation:
-                    noisy_latent_sequences = noise_scheduler.add_noise(target_latent_sequences, new_noise, timesteps)
+                    noisy_latent_sequences_flat = noise_scheduler.add_noise(target_latent_sequences_flat, new_noise, timesteps)
                 else:
-                    noisy_latent_sequences = noise_scheduler.add_noise(target_latent_sequences, noise, timesteps)
+                    noisy_latent_sequences_flat = noise_scheduler.add_noise(target_latent_sequences_flat, noise, timesteps)
+
+                # Reshape the sequence of images back into the original shape of [n_batches, seqlen]
+                noisy_latent_sequences = noisy_latent_sequences_flat.reshape(batch_size, n_images, *noisy_latent_sequences_flat.shape[1:])
+                target_latent_sequences = target_latent_sequences_flat.reshape(batch_size, n_images, *target_latent_sequences_flat.shape[1:])
 
                 # Get the text embedding sequences for conditioning.
                 # This is a tensor of [bsz, max_sequence_length, d_model]
-                encoder_hidden_states = text_encoder.forward(texts, text_attention_masks, return_dict=False).last_hidden_state
+                encoder_hidden_states = text_encoder.forward(input_ids=texts, attention_mask=text_attention_masks, return_dict=False)[0]
 
                 # Get the target for loss depending on the prediction type
                 if args.prediction_type is not None:
@@ -1084,7 +1111,7 @@ def main():
                     motion_bucket_id=0,
                     noise_aug_strength=0.02,
                     dtype=target_latent_sequences.dtype,
-                    batch_size=bsz,
+                    batch_size=batch_size,
                     num_videos_per_prompt=1,
                     do_classifier_free_guidance=False,
                 )

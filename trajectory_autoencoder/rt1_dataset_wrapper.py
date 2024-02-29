@@ -24,7 +24,8 @@ class RT1Dataset(torch.utils.data.Dataset):
         images = []
         instruction: bytes = steps[0]['observation']['natural_language_instruction']
         instruction = instruction.decode('utf-8')
-        for i in range(len(steps)):
+        for i in range(25):
+        # for i in range(len(steps)):
             # image needs to be scaled to the range 0.0-1.0.
             # also, needs to go from (h, w, c) to (c, h, w)
             images.append(torch.tensor(steps[i]['observation']['image'] / 255.0).permute(2, 0, 1))
