@@ -21,6 +21,7 @@ import os
 import random
 import shutil
 from pathlib import Path
+import datetime
 
 import accelerate
 import datasets
@@ -64,6 +65,19 @@ if is_wandb_available():
 # check_min_version("0.27.0.dev0")
 
 logger = get_logger(__name__, log_level="INFO")
+
+# https://github.com/huggingface/accelerate/issues/1221
+# Store to file. DEPRECATED: Replaced with the `tee` command in a training script.
+# However, if tee doesn't work, we can use this as a backup...
+logging_dir = "logs"
+if not os.path.exists(logging_dir):
+    os.makedirs(logging_dir)
+logfilename = f"train_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_py.log"
+logfile = os.path.join(logging_dir, logfilename)
+file_handler = logging.FileHandler(logfile)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+file_handler.setFormatter(formatter)
+logger.logger.addHandler(file_handler)
 
 
 def save_model_card(
@@ -298,7 +312,13 @@ def parse_args():
         "--output_dir",
         type=str,
         default="sd-model-finetuned",
-        help="The output directory where the model predictions and checkpoints will be written.",
+        help="The output directory where the model will be saved. (And where model outputs will be stored.)",
+    )
+    parser.add_argument(
+        "--checkpoint_dir",
+        type=str,
+        default="sd-model-finetuned-checkpoints",
+        help="The output directory where the model checkpoints will be written.",
     )
     # !!! Set this to one in scratch !!!
     parser.add_argument(
@@ -1222,30 +1242,47 @@ def main():
                 train_loss = 0.0
 
                 if global_step % args.checkpointing_steps == 0:
+                    accelerator.wait_for_everyone()
                     if accelerator.is_main_process:
-                        # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
-                        if args.checkpoints_total_limit is not None:
-                            checkpoints = os.listdir(args.output_dir)
-                            checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
-                            checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
+                        unet = unwrap_model(unet)
+                        if args.use_ema:
+                            ema_unet.copy_to(unet.parameters())
 
-                            # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
-                            if len(checkpoints) >= args.checkpoints_total_limit:
-                                num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
-                                removing_checkpoints = checkpoints[0:num_to_remove]
+                        # Run `save_pretrained`
+                        pipeline = StableVideoDiffusionPipeline.from_pretrained(
+                            args.pretrained_model_name_or_path,
+                            text_encoder=text_encoder,
+                            vae=vae,
+                            unet=unet,
+                            revision=args.revision,
+                            variant=args.variant,
+                        )
+                        save_path = os.path.join(args.checkpoint_dir, f"checkpoint-{global_step}")
+                        pipeline.save_pretrained(save_path)
+                        
+                        # Store optimizer state as well
+                        # if args.checkpoints_total_limit is not None:
+                        #     checkpoints = os.listdir(args.output_dir)
+                        #     checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
+                        #     checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
 
-                                logger.info(
-                                    f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
-                                )
-                                logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
+                        #     # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
+                        #     if len(checkpoints) >= args.checkpoints_total_limit:
+                        #         num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
+                        #         removing_checkpoints = checkpoints[0:num_to_remove]
 
-                                for removing_checkpoint in removing_checkpoints:
-                                    removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
-                                    shutil.rmtree(removing_checkpoint)
+                        #         logger.info(
+                        #             f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
+                        #         )
+                        #         logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
 
-                        save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
-                        accelerator.save_state(save_path)
-                        logger.info(f"Saved state to {save_path}")
+                        #         for removing_checkpoint in removing_checkpoints:
+                        #             removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
+                        #             shutil.rmtree(removing_checkpoint)
+
+                        # save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
+                        # accelerator.save_state(save_path)
+                        # logger.info(f"Saved state to {save_path}")
 
             logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)

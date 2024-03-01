@@ -31,11 +31,13 @@ image_height=256
 train_batch_size=8
 
 # Train on all samples for 1 epoch.
-# max_train_samples=
+# We save intermediate models with checkpoints.
+max_train_samples=0
 num_train_epochs=1
 
 # Using rank=16 reduces to ~6m trainable parameters.
-LoRA_rank=64
+# Rank is a linear function of num. parameters thereafter.
+LoRA_rank=256
 
 accelerate launch \
 	--main_process_port 29505 \
@@ -53,5 +55,6 @@ accelerate launch \
 	--rank $LoRA_rank \
 	--report_to wandb \
 	--mixed_precision fp16 \
-	--num_train_epochs $num_train_epochs
-	# --max_train_samples $max_train_samples \
+	--num_train_epochs $num_train_epochs \
+	--checkpointing_steps 250 \
+	--max_train_samples $max_train_samples | tee -a logs/train_$(date +"%Y-%m-%d_%H-%M-%S").log
