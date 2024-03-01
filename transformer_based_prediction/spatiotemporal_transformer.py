@@ -11,7 +11,14 @@ class SpatioTemporalTokenizer(nn.Module):
         self.convolve = nn.Conv3d(n_image_dims, n_latent_dims, kernel_size=token_size, stride=token_size)
 
     def forward(self, x):
-        return self.convolve(x)
+        # (batch_size, seqlen, n_image_dims, height, width) = x.shape
+        # Permute to [batch_size, n_image_dims, seqlen, height, width]
+        x = x.permute(0, 2, 1, 3, 4)
+        x = self.convolve(x)
+        # Permute back to [batch_size, seqlen, n_latent_dims, height, width]
+        x = x.permute(0, 2, 1, 3, 4)
+
+        return x
 
 class SpatioTemporalDetokenizer(nn.Module):
     def __init__(self, token_size: int, n_latent_dims: int, n_image_dims: int):
@@ -59,6 +66,10 @@ class SpatioTemporalEmbedding(nn.Module):
 
         x = x + spatial_tokens + temporal_tokens
 
+        # Reshape to [batch_size, seqlen, height * width, n_latent_dims]
+        x = x.view(batch_size, seqlen, height * width, self.n_latent_dims)
+        x = x.contiguous()
+
         return x
 
 class SpatioTemporalAttentionBlock(nn.Module):
@@ -78,24 +89,25 @@ class SpatioTemporalAttentionBlock(nn.Module):
         )
 
     def forward(self, x):
-        # x: [batch_size, seqlen, height, width, n_latent_dims]
-        (batch_size, seqlen, height, width, n_latent_dims) = x.shape
-
+        # x: [batch_size, seqlen, n_frame_tokens, n_latent_dims]
+        (batch_size, sequence_length, n_frame_tokens, n_latent_dims) = x.shape
 
         # Spatial attention
         # Make seqlen a batch dimension by reshaping to [batch_size * seqlen, height * width, n_latent_dims]
-        x = x.view(batch_size * seqlen, height * width, n_latent_dims)
+        x = x.view(batch_size * sequence_length, n_frame_tokens, n_latent_dims)
         x, _ = self.spatial_attention(x, x, x)
-        x = x.view(batch_size, seqlen, height, width, n_latent_dims)
+        x = x.view(batch_size, sequence_length, n_frame_tokens, n_latent_dims)
 
         # Temporal attention
-        # Permute to [batch_size, height, width, seqlen, n_latent_dims]
+        # Apply causal attention mask
+        causal_mask = torch.tril(torch.ones(sequence_length, sequence_length)).to(x.device)
+        # Permute to [batch_size, n_frame_tokens, seqlen, n_latent_dims]
         x = x.permute(0, 2, 3, 1, 4)
         # Make height * width a batch dimension by reshaping to [batch_size * height * width, seqlen, n_latent_dims]
-        x = x.view(batch_size * height * width, seqlen, n_latent_dims)
-        x, _ = self.temporal_attention(x, x, x)
-        x = x.view(batch_size, height, width, seqlen, n_latent_dims)
-        # Permute back to [batch_size, seqlen, height, width, n_latent_dims]
+        x = x.view(batch_size * n_frame_tokens, sequence_length, n_latent_dims)
+        x, _ = self.temporal_attention(x, x, x, attn_mask=causal_mask)
+        x = x.view(batch_size, n_frame_tokens, sequence_length, n_latent_dims)
+        # Permute back to [batch_size, seqlen, n_frame_tokens, n_latent_dims]
         x = x.permute(0, 3, 1, 2, 4)
 
         # Linear residual layer
