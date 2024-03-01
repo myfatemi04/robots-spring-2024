@@ -877,15 +877,24 @@ def main():
 
         imgseqs = [vae_image_processor.preprocess(imgseq, height=args.image_height, width=args.image_width) for (_, imgseq) in batch]
         minseqlen = min([len(x) for x in imgseqs])
-        imgseqs = [seq[:minseqlen] for seq in imgseqs]
+        minseqlen = min(25, minseqlen)
 
-        return (text_tokens, text_attention_masks, torch.stack(imgseqs))
+        # Randomly select a start and end time consistent with minseqlen.
+        imgseqs_selected = []
+        for imgseq in imgseqs:
+            # for torch.randint:
+            # low: least integer
+            # high: one above the highest integer
+            start_index = torch.randint(0, len(imgseq) - minseqlen + 1, ())
+            imgseqs_selected.append(imgseq[start_index:start_index + minseqlen])
+
+        return (text_tokens, text_attention_masks, torch.stack(imgseqs_selected))
     
     train_dataset = RT1Dataset(args.rt1_dataset_root)
     # Allow a maximum number of training samples for quick debugging.
     # Question: Why is `accelerator.main_process_first()` used here?
     with accelerator.main_process_first():
-        if args.max_train_samples is not None:
+        if args.max_train_samples:
             # Create random torch.utils.data.Subset of original dataset.
             # indices_to_keep = torch.randperm(len(train_dataset))[:args.max_train_samples]
             # train_dataset = torch.utils.data.Subset(train_dataset, indices_to_keep)

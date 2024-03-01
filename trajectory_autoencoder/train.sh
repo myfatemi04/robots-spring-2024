@@ -30,11 +30,12 @@ image_width=320
 image_height=256
 train_batch_size=8
 
-# Train on first 200 samples.
-max_train_samples=200
+# Train on all samples for 1 epoch.
+# max_train_samples=
+num_train_epochs=1
 
 # Using rank=16 reduces to ~6m trainable parameters.
-LoRA_rank=16
+LoRA_rank=64
 
 accelerate launch \
 	--main_process_port 29505 \
@@ -52,4 +53,5 @@ accelerate launch \
 	--rank $LoRA_rank \
 	--report_to wandb \
 	--mixed_precision fp16 \
-	--max_train_samples $max_train_samples
+	--num_train_epochs $num_train_epochs
+	# --max_train_samples $max_train_samples \
