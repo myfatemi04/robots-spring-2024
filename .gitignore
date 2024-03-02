@@ -21,4 +21,3 @@ control_labels
 
 slurm-*.err
 slurm-*.out
-trajectory_autoencoder/logs
