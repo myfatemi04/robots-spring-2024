@@ -540,7 +540,7 @@ class DistributedDiffusionTrainer:
         alphas_cumprod = self.noise_scheduler.alphas_cumprod
         sqrt_alphas_cumprod = alphas_cumprod**0.5
         sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod) ** 0.5
-        sigma_values = sqrt_one_minus_alphas_cumprod
+        sigma_values = sqrt_one_minus_alphas_cumprod.to(device=accelerator.device, dtype=weight_dtype)
 
         c_skip = 1 / (sigma_values ** 2 + 1)
         c_out = -sigma_values * torch.rsqrt(sigma_values ** 2 + 1)
@@ -609,23 +609,45 @@ class DistributedDiffusionTrainer:
                     timesteps = timesteps.long()
 
                     # Sample noise that we'll add to the latents.
-                    # Add the noise to the "flattened" latent variables.
                     noise = torch.randn_like(target_latent_sequences)
 
-                    if args.noise_offset:
-                        # https://www.crosslabs.org//blog/diffusion-with-offset-noise
-                        noise += args.noise_offset * torch.randn(
-                            (target_latent_sequences.shape[0], target_latent_sequences.shape[1], 1, 1),
-                            device=target_latent_sequences.device
-                        )
+                    unsqueeze_to_batch = lambda x: x.view(len(timesteps), *([1] * (len(target_latent_sequences.shape) - 1)))
 
-                    # Add noise to the latents according to the noise magnitude at each timestep
-                    # (this is the forward diffusion process)
-                    if args.input_perturbation:
-                        new_noise = noise + args.input_perturbation * torch.randn_like(noise)
-                        noisy_latent_sequences = noise_scheduler.add_noise(target_latent_sequences, new_noise, timesteps) # type: ignore
+                    USE_EDM_FORMULATION = True
+
+                    if not USE_EDM_FORMULATION:
+                        if args.noise_offset:
+                            # https://www.crosslabs.org//blog/diffusion-with-offset-noise
+                            noise += args.noise_offset * torch.randn(
+                                (target_latent_sequences.shape[0], target_latent_sequences.shape[1], 1, 1),
+                                device=target_latent_sequences.device
+                            )
+
+                        # Add noise to the latents according to the noise magnitude at each timestep
+                        # (this is the forward diffusion process)
+                        if args.input_perturbation:
+                            new_noise = noise + args.input_perturbation * torch.randn_like(noise)
+                            model_input = noise_scheduler.add_noise(target_latent_sequences, new_noise, timesteps) # type: ignore
+                        else:
+                            model_input = noise_scheduler.add_noise(target_latent_sequences, noise, timesteps) # type: ignore
+
+                        # Get the target for loss depending on the prediction type
+                        if args.prediction_type is not None:
+                            # set prediction_type of scheduler if defined
+                            noise_scheduler.register_to_config(prediction_type=args.prediction_type)
+
+                        # epsilon = directly predict the total noise that has been added to the original latent vector
+                        noise_scheduler_prediction_type = noise_scheduler.config.prediction_type # type: ignore
+                        if noise_scheduler_prediction_type == "epsilon":
+                            target = noise
+                        elif noise_scheduler_prediction_type == "v_prediction":
+                            target = noise_scheduler.get_velocity(target_latent_sequences, noise, timesteps) # type: ignore
+                        else:
+                            raise ValueError(f"Unknown prediction type {noise_scheduler_prediction_type}")
                     else:
-                        noisy_latent_sequences = noise_scheduler.add_noise(target_latent_sequences, noise, timesteps) # type: ignore
+                        noise = noise * unsqueeze_to_batch(sigma_values[timesteps])
+                        model_input = unsqueeze_to_batch(c_in[timesteps]) * (target_latent_sequences + noise)
+                        target = target_latent_sequences
 
                     # Get the text embedding sequences for conditioning.
                     # Right now, just use pooler output; but at some point, would like to condition on all input tokens.
@@ -640,20 +662,6 @@ class DistributedDiffusionTrainer:
                         # This is for classifier-free guidance.
                         classifier_free_mask = torch.rand(encoder_hidden_states.shape[0]) < 0.1
                         encoder_hidden_states[classifier_free_mask] = 0
-
-                    # Get the target for loss depending on the prediction type
-                    if args.prediction_type is not None:
-                        # set prediction_type of scheduler if defined
-                        noise_scheduler.register_to_config(prediction_type=args.prediction_type)
-
-                    # epsilon = directly predict the total noise that has been added to the original latent vector
-                    noise_scheduler_prediction_type = noise_scheduler.config.prediction_type # type: ignore
-                    if noise_scheduler_prediction_type == "epsilon":
-                        target = noise
-                    elif noise_scheduler_prediction_type == "v_prediction":
-                        target = noise_scheduler.get_velocity(target_latent_sequences, noise, timesteps) # type: ignore
-                    else:
-                        raise ValueError(f"Unknown prediction type {noise_scheduler_prediction_type}")
 
                     # Predict the noise residual and compute loss
                     # Everything should be the same otherwise
@@ -670,18 +678,20 @@ class DistributedDiffusionTrainer:
                     )
                     added_time_ids = added_time_ids.to(device=accelerator.device)
                     # (bsz, nframes, d_model) -> (bsz, nframes, d_model * 2)
-                    latent_model_input = torch.cat([noisy_latent_sequences, initial_image_latents.unsqueeze(1).repeat(1, n_images, 1, 1, 1)], dim=2)
+                    latent_model_input = torch.cat([model_input, initial_image_latents.unsqueeze(1).repeat(1, n_images, 1, 1, 1)], dim=2)
 
                     model_pred = unet(latent_model_input, timesteps, encoder_hidden_states, added_time_ids, return_dict=False)[0]
 
-                    # if args.use_edm_preconditioning:
-                    #     # An alternative way to specify how the diffusion model "learns".
-                    #     c_skip[timesteps]
-                    #     c_out[timesteps]
-                    #     c_in[timesteps]
-                    #     c_noise[timesteps]
-
-                    if args.snr_gamma is None:
+                    if USE_EDM_FORMULATION:
+                        denoiser_prediction = (
+                            unsqueeze_to_batch(c_skip[timesteps]) * target_latent_sequences +
+                            unsqueeze_to_batch(c_out[timesteps]) * model_pred
+                        )
+                        loss = (
+                            ((denoiser_prediction.float() - target.float()) ** 2) *
+                            unsqueeze_to_batch(lambda_values[timesteps])
+                        ).mean()
+                    elif args.snr_gamma is None:
                         loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                     else:
                         # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
