@@ -184,20 +184,20 @@ class DistributedDiffusionTrainer:
         # across multiple gpus and only UNetSpatioTemporalConditionModel will get ZeRO sharded.
         with ContextManagers(deepspeed_zero_init_disabled_context_manager()):
             # Again, text encoder is from a separate model; it is not part of Stable Diffusion Video.
-            text_encoder = CLIPTextModel.from_pretrained(
+            text_encoder: CLIPTextModel = CLIPTextModel.from_pretrained( # type: ignore
                 args.pretrained_text_encoder_model_name_or_path, variant=args.variant
                 # subfolder="text_encoder", revision=args.revision, variant=args.variant
             )
             self.text_encoder: CLIPTextModel = text_encoder # type: ignore
-            vae = AutoencoderKLTemporalDecoder.from_pretrained(
+            vae: AutoencoderKLTemporalDecoder = AutoencoderKLTemporalDecoder.from_pretrained( # type: ignore
                 args.pretrained_model_name_or_path, subfolder="vae", revision=args.revision, variant=args.variant
             )
             self.vae: AutoencoderKLTemporalDecoder = vae # type: ignore
             # Taken from line ~119 of `pipeline_stable_video_diffusion.py`
-            self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
+            self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1) # type: ignore
             self.vae_image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
 
-        unet = UNetSpatioTemporalConditionModel.from_pretrained(
+        unet: UNetSpatioTemporalConditionModel = UNetSpatioTemporalConditionModel.from_pretrained( # type: ignore
             args.pretrained_model_name_or_path,
             subfolder="unet",
             revision=args.non_ema_revision,
@@ -221,7 +221,7 @@ class DistributedDiffusionTrainer:
             ema_unet: UNetSpatioTemporalConditionModel = UNetSpatioTemporalConditionModel.from_pretrained( # type: ignore
                 args.pretrained_model_name_or_path, subfolder="unet", revision=args.revision, variant=args.variant
             )
-            self.ema_unet = EMAModel(ema_unet.parameters(), model_cls=UNetSpatioTemporalConditionModel, model_config=self.ema_unet.config)
+            self.ema_unet = EMAModel(ema_unet.parameters(), model_cls=UNetSpatioTemporalConditionModel, model_config=ema_unet.config)
         else:
             self.ema_unet = None
 
@@ -282,9 +282,9 @@ class DistributedDiffusionTrainer:
         #region LR scheduler
         # Scheduler and math around the number of training steps.
         overrode_max_train_steps = False
-        num_update_steps_per_epoch = math.ceil(len(self.dataloader) / args.gradient_accumulation_steps)
+        self.num_update_steps_per_epoch = math.ceil(len(self.dataloader) / args.gradient_accumulation_steps)
         if args.max_train_steps is None:
-            args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
+            args.max_train_steps = args.num_train_epochs * self.num_update_steps_per_epoch
             overrode_max_train_steps = True
 
         self.lr_scheduler = get_scheduler(
@@ -419,11 +419,9 @@ class DistributedDiffusionTrainer:
 
             def load_model_hook(models, input_dir):
                 if args.use_ema:
-                    load_model = EMAModel.from_pretrained(os.path.join(input_dir, "unet_ema"), UNetSpatioTemporalConditionModel) # type: ignore
-                    load_model: EMAModel
-
                     assert ema_unet, "args.use_ema is true, but ema_unet was None"
 
+                    load_model: EMAModel = EMAModel.from_pretrained(os.path.join(input_dir, "unet_ema"), UNetSpatioTemporalConditionModel) # type: ignore
                     ema_unet.load_state_dict(load_model.state_dict())
                     ema_unet.to(accelerator.device)
                     del load_model
@@ -452,7 +450,7 @@ class DistributedDiffusionTrainer:
                 logger.warn(
                     "xFormers 0.0.16 cannot be used for training in some GPUs. If you observe problems during training, please update xFormers to at least 0.0.17. See https://huggingface.co/docs/diffusers/main/en/optimization/xformers for more details."
                 )
-            unet.enable_xformers_memory_efficient_attention()
+            self.unet.enable_xformers_memory_efficient_attention()
         else:
             raise ValueError("xformers is not available. Make sure it is installed correctly")
 
@@ -481,7 +479,7 @@ class DistributedDiffusionTrainer:
             global_step = int(path.split("-")[1])
 
             initial_global_step = global_step
-            first_epoch = global_step // num_update_steps_per_epoch
+            first_epoch = global_step // self.num_update_steps_per_epoch
             
         return (initial_global_step, first_epoch)
 
@@ -524,6 +522,7 @@ class DistributedDiffusionTrainer:
         lr_scheduler = self.lr_scheduler
         text_encoder = self.text_encoder
         weight_dtype = self.weight_dtype
+        tokenizer = self.tokenizer
 
         total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
 
@@ -672,11 +671,6 @@ class DistributedDiffusionTrainer:
                     # (bsz, nframes, d_model) -> (bsz, nframes, d_model * 2)
                     latent_model_input = torch.cat([noisy_latent_sequences, initial_image_latents.unsqueeze(1).repeat(1, n_images, 1, 1, 1)], dim=2)
 
-                    assert unet.device == latent_model_input.device, "latent_model_input.device is " + str(latent_model_input.device)
-                    assert unet.device == timesteps.device, "timesteps.device is " + str(timesteps.device)
-                    assert unet.device == encoder_hidden_states.device, "encoder_hidden_states.device is " + str(encoder_hidden_states.device)
-                    assert unet.device == added_time_ids.device, "added_time_ids.device is " + str(added_time_ids.device)
-
                     model_pred = unet(latent_model_input, timesteps, encoder_hidden_states, added_time_ids, return_dict=False)[0]
 
                     # if args.use_edm_preconditioning:
@@ -706,7 +700,7 @@ class DistributedDiffusionTrainer:
                         loss = loss.mean()
 
                     # Gather the losses across all processes for logging (if we use distributed training).
-                    avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
+                    avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean() # type: ignore
                     train_loss += avg_loss.item() / args.gradient_accumulation_steps
 
                     # Backpropagate
@@ -787,7 +781,7 @@ class DistributedDiffusionTrainer:
         accelerator = self.accelerator
         weight_dtype = self.weight_dtype
 
-        unet = unwrap_model(unet)
+        unet = self.unwrap_model(unet)
         if args.use_ema:
             assert ema_unet, "args.use_ema is true, but ema_unet was None"
 
@@ -859,7 +853,7 @@ def main():
         deprecate(
             "non_ema_revision!=None",
             "0.15.0",
-            message=(
+            (
                 "Downloading 'non_ema' weights from revision branches of the Hub is deprecated. Please make sure to"
                 " use `--variant=non_ema` instead."
             ),
