@@ -170,7 +170,7 @@ class DistributedDiffusionTrainer:
                 ).repo_id
 
         # Load models
-        self.noise_scheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
+        self.noise_scheduler: DDPMScheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler") # type: ignore
         self.tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(args.pretrained_text_encoder_model_name_or_path) # type: ignore
 
         # Currently Accelerate doesn't know how to handle multiple models under Deepspeed ZeRO stage 3.
@@ -211,11 +211,6 @@ class DistributedDiffusionTrainer:
         self.text_encoder.requires_grad_(False)
         self.unet.train()
 
-        self.register_checkpointing_hooks()
-
-        if args.enable_xformers_efficient_attention:
-            self.enable_xformers_efficient_attention()
-
         # Create EMA for the unet.
         if args.use_ema:
             ema_unet: UNetSpatioTemporalConditionModel = UNetSpatioTemporalConditionModel.from_pretrained( # type: ignore
@@ -224,6 +219,11 @@ class DistributedDiffusionTrainer:
             self.ema_unet = EMAModel(ema_unet.parameters(), model_cls=UNetSpatioTemporalConditionModel, model_config=ema_unet.config)
         else:
             self.ema_unet = None
+
+        self.register_checkpointing_hooks()
+
+        if args.enable_xformers_memory_efficient_attention:
+            self.enable_xformers_memory_efficient_attention()
 
         if args.gradient_checkpointing:
             self.unet.enable_gradient_checkpointing()
@@ -441,7 +441,7 @@ class DistributedDiffusionTrainer:
             accelerator.register_save_state_pre_hook(save_model_hook)
             accelerator.register_load_state_pre_hook(load_model_hook)
 
-    def enable_xformers_efficient_attention(self):
+    def enable_xformers_memory_efficient_attention(self):
         if is_xformers_available():
             import xformers # type: ignore
 
@@ -537,17 +537,17 @@ class DistributedDiffusionTrainer:
         # Preconditioning functions that are based on noise level.
         # sigma_values is an array representing the noise level at
         # each time step.
-        # alphas_cumprod = noise_scheduler.alphas_cumprod
-        # sqrt_alphas_cumprod = alphas_cumprod**0.5
-        # sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod) ** 0.5
-        # sigma_values = sqrt_one_minus_alphas_cumprod
+        alphas_cumprod = self.noise_scheduler.alphas_cumprod
+        sqrt_alphas_cumprod = alphas_cumprod**0.5
+        sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod) ** 0.5
+        sigma_values = sqrt_one_minus_alphas_cumprod
 
-        # c_skip = 1 / (sigma_values ** 2 + 1)
-        # c_out = -sigma_values * torch.rsqrt(sigma_values ** 2 + 1)
-        # c_in = torch.rsqrt(sigma_values ** 2 + 1)
-        # c_noise = 0.25 * torch.log(sigma_values)
-        # # This is how much to weight the MSE loss at each time step.
-        # lambda_values = (1 + sigma_values ** 2) / (sigma_values ** 2)
+        c_skip = 1 / (sigma_values ** 2 + 1)
+        c_out = -sigma_values * torch.rsqrt(sigma_values ** 2 + 1)
+        c_in = torch.rsqrt(sigma_values ** 2 + 1)
+        c_noise = 0.25 * torch.log(sigma_values)
+        # This is how much to weight the MSE loss at each time step.
+        lambda_values = (1 + sigma_values ** 2) / (sigma_values ** 2)
 
         global_step = 0
         initial_global_step = 0
@@ -597,35 +597,35 @@ class DistributedDiffusionTrainer:
                         image_sequences.to(device=accelerator.device, dtype=self.weight_dtype)
                     )
 
+                    # Sample a random timestep for each sequence.
+                    # All images in the same sequence must have the
+                    # same timestep.
+                    # Make sure the device matches the latents
+                    timesteps = torch.randint(
+                        0, noise_scheduler.config.num_train_timesteps, # type: ignore
+                        (batch_size,),
+                        device=target_latent_sequences.device
+                    )
+                    timesteps = timesteps.long()
+
                     # Sample noise that we'll add to the latents.
                     # Add the noise to the "flattened" latent variables.
                     noise = torch.randn_like(target_latent_sequences)
+
                     if args.noise_offset:
                         # https://www.crosslabs.org//blog/diffusion-with-offset-noise
                         noise += args.noise_offset * torch.randn(
                             (target_latent_sequences.shape[0], target_latent_sequences.shape[1], 1, 1),
                             device=target_latent_sequences.device
                         )
-                    if args.input_perturbation:
-                        new_noise = noise + args.input_perturbation * torch.randn_like(noise)
-
-                    # Sample a random timestep for each sequence.
-                    # All images in the same sequence must have the
-                    # same timestep.
-                    # Make sure the device matches the latents
-                    timesteps = torch.randint(
-                        0, noise_scheduler.config.num_train_timesteps,
-                        (batch_size,),
-                        device=target_latent_sequences.device
-                    )
-                    timesteps = timesteps.long()
 
                     # Add noise to the latents according to the noise magnitude at each timestep
                     # (this is the forward diffusion process)
                     if args.input_perturbation:
-                        noisy_latent_sequences = noise_scheduler.add_noise(target_latent_sequences, new_noise, timesteps)
+                        new_noise = noise + args.input_perturbation * torch.randn_like(noise)
+                        noisy_latent_sequences = noise_scheduler.add_noise(target_latent_sequences, new_noise, timesteps) # type: ignore
                     else:
-                        noisy_latent_sequences = noise_scheduler.add_noise(target_latent_sequences, noise, timesteps)
+                        noisy_latent_sequences = noise_scheduler.add_noise(target_latent_sequences, noise, timesteps) # type: ignore
 
                     # Get the text embedding sequences for conditioning.
                     # Right now, just use pooler output; but at some point, would like to condition on all input tokens.
@@ -647,12 +647,13 @@ class DistributedDiffusionTrainer:
                         noise_scheduler.register_to_config(prediction_type=args.prediction_type)
 
                     # epsilon = directly predict the total noise that has been added to the original latent vector
-                    if noise_scheduler.config.prediction_type == "epsilon":
+                    noise_scheduler_prediction_type = noise_scheduler.config.prediction_type # type: ignore
+                    if noise_scheduler_prediction_type == "epsilon":
                         target = noise
-                    elif noise_scheduler.config.prediction_type == "v_prediction":
-                        target = noise_scheduler.get_velocity(target_latent_sequences, noise, timesteps)
+                    elif noise_scheduler_prediction_type == "v_prediction":
+                        target = noise_scheduler.get_velocity(target_latent_sequences, noise, timesteps) # type: ignore
                     else:
-                        raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
+                        raise ValueError(f"Unknown prediction type {noise_scheduler_prediction_type}")
 
                     # Predict the noise residual and compute loss
                     # Everything should be the same otherwise
@@ -661,7 +662,7 @@ class DistributedDiffusionTrainer:
                         self.unet_original_config,
                         fps=7,
                         motion_bucket_id=0,
-                        noise_aug_strength=0.02,
+                        noise_aug_strength=0,
                         dtype=target_latent_sequences.dtype,
                         batch_size=batch_size,
                         num_videos_per_prompt=1,
@@ -690,9 +691,10 @@ class DistributedDiffusionTrainer:
                         mse_loss_weights = torch.stack([snr, args.snr_gamma * torch.ones_like(timesteps)], dim=1).min(
                             dim=1
                         )[0]
-                        if noise_scheduler.config.prediction_type == "epsilon":
+                        noise_scheduler_prediction_type = noise_scheduler.config.prediction_type # type: ignore
+                        if noise_scheduler_prediction_type == "epsilon":
                             mse_loss_weights = mse_loss_weights / snr
-                        elif noise_scheduler.config.prediction_type == "v_prediction":
+                        elif noise_scheduler_prediction_type == "v_prediction":
                             mse_loss_weights = mse_loss_weights / (snr + 1)
 
                         loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
