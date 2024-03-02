@@ -1061,7 +1061,22 @@ def main():
             add_time_ids = torch.cat([add_time_ids, add_time_ids])
 
         return add_time_ids
+    
+    # Preconditioning functions that are based on noise level.
+    # sigma_values is an array representing the noise level at
+    # each time step.
+    # alphas_cumprod = noise_scheduler.alphas_cumprod
+    # sqrt_alphas_cumprod = alphas_cumprod**0.5
+    # sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod) ** 0.5
+    # sigma_values = sqrt_one_minus_alphas_cumprod
 
+    # c_skip = 1 / (sigma_values ** 2 + 1)
+    # c_out = -sigma_values * torch.rsqrt(sigma_values ** 2 + 1)
+    # c_in = torch.rsqrt(sigma_values ** 2 + 1)
+    # c_noise = 0.25 * torch.log(sigma_values)
+    # # This is how much to weight the MSE loss at each time step.
+    # lambda_values = (1 + sigma_values ** 2) / (sigma_values ** 2)
+    
     for epoch in range(first_epoch, args.num_train_epochs):
         train_loss = 0.0
         for step, batch in enumerate(train_dataloader):
@@ -1200,6 +1215,13 @@ def main():
                 assert unet.device == added_time_ids.device, "added_time_ids.device is " + str(added_time_ids.device)
 
                 model_pred = unet(latent_model_input, timesteps, encoder_hidden_states, added_time_ids, return_dict=False)[0]
+
+                # if args.use_edm_preconditioning:
+                #     # An alternative way to specify how the diffusion model "learns".
+                #     c_skip[timesteps]
+                #     c_out[timesteps]
+                #     c_in[timesteps]
+                #     c_noise[timesteps]
 
                 if args.snr_gamma is None:
                     loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")

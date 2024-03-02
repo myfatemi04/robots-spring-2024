@@ -28,16 +28,22 @@ export OMP_NUM_THREADS=16
 # Use a larger batch because of smaller images.
 image_width=320
 image_height=256
-train_batch_size=8
+train_batch_size=1
 
 # Train on all samples for 1 epoch.
 # We save intermediate models with checkpoints.
-max_train_samples=0
-num_train_epochs=1
+max_train_samples=1
+num_train_epochs=1000
 
 # Using rank=16 reduces to ~6m trainable parameters.
 # Rank is a linear function of num. parameters thereafter.
 LoRA_rank=256
+
+# Recommended to be 5.0. This is how the loss function is reweighted across samples.
+snr_gamma=5.0
+
+output_dir=experiments/003_snrgamma5_overfit1
+checkpoint_dir=`echo $output_dir`_checkpoints
 
 accelerate launch \
 	--main_process_port 29505 \
@@ -49,6 +55,8 @@ accelerate launch \
   --train_batch_size $train_batch_size \
   --gradient_accumulation_steps 4 \
 	--cache_dir /scratch/gsk6me/huggingface_cache \
+	--output_dir $output_dir \
+	--checkpoint_dir $checkpoint_dir \
 	--image_width $image_width \
 	--image_height $image_height \
 	--gradient_checkpointing \
@@ -57,4 +65,5 @@ accelerate launch \
 	--mixed_precision fp16 \
 	--num_train_epochs $num_train_epochs \
 	--checkpointing_steps 250 \
+	--snr_gamma $snr_gamma \
 	--max_train_samples $max_train_samples | tee -a logs/train_$(date +"%Y-%m-%d_%H-%M-%S").log
