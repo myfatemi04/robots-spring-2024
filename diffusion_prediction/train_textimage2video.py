@@ -538,7 +538,6 @@ class DistributedDiffusionTrainer:
         # sigma_values is an array representing the noise level at
         # each time step.
         alphas_cumprod = self.noise_scheduler.alphas_cumprod
-        sqrt_alphas_cumprod = alphas_cumprod**0.5
         sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod) ** 0.5
         sigma_values = sqrt_one_minus_alphas_cumprod.to(device=accelerator.device, dtype=weight_dtype)
 
@@ -613,24 +612,24 @@ class DistributedDiffusionTrainer:
 
                     unsqueeze_to_batch = lambda x: x.view(len(timesteps), *([1] * (len(target_latent_sequences.shape) - 1)))
 
+                    if args.noise_offset:
+                        # https://www.crosslabs.org//blog/diffusion-with-offset-noise
+                        noise += args.noise_offset * torch.randn(
+                            (target_latent_sequences.shape[0], target_latent_sequences.shape[1], 1, 1),
+                            device=target_latent_sequences.device
+                        )
+
+                    # Add noise to the latents according to the noise magnitude at each timestep
+                    # (this is the forward diffusion process)
+                    if args.input_perturbation:
+                        new_noise = noise + args.input_perturbation * torch.randn_like(noise)
+                        noisy_latents = noise_scheduler.add_noise(target_latent_sequences, new_noise, timesteps) # type: ignore
+                    else:
+                        noisy_latents = noise_scheduler.add_noise(target_latent_sequences, noise, timesteps) # type: ignore
+
                     USE_EDM_FORMULATION = True
 
                     if not USE_EDM_FORMULATION:
-                        if args.noise_offset:
-                            # https://www.crosslabs.org//blog/diffusion-with-offset-noise
-                            noise += args.noise_offset * torch.randn(
-                                (target_latent_sequences.shape[0], target_latent_sequences.shape[1], 1, 1),
-                                device=target_latent_sequences.device
-                            )
-
-                        # Add noise to the latents according to the noise magnitude at each timestep
-                        # (this is the forward diffusion process)
-                        if args.input_perturbation:
-                            new_noise = noise + args.input_perturbation * torch.randn_like(noise)
-                            model_input = noise_scheduler.add_noise(target_latent_sequences, new_noise, timesteps) # type: ignore
-                        else:
-                            model_input = noise_scheduler.add_noise(target_latent_sequences, noise, timesteps) # type: ignore
-
                         # Get the target for loss depending on the prediction type
                         if args.prediction_type is not None:
                             # set prediction_type of scheduler if defined
@@ -646,7 +645,7 @@ class DistributedDiffusionTrainer:
                             raise ValueError(f"Unknown prediction type {noise_scheduler_prediction_type}")
                     else:
                         noise = noise * unsqueeze_to_batch(sigma_values[timesteps])
-                        model_input = unsqueeze_to_batch(c_in[timesteps]) * (target_latent_sequences + noise)
+                        noisy_latents = unsqueeze_to_batch(c_in[timesteps]) * (target_latent_sequences + noise)
                         target = target_latent_sequences
 
                     # Get the text embedding sequences for conditioning.
@@ -678,16 +677,23 @@ class DistributedDiffusionTrainer:
                     )
                     added_time_ids = added_time_ids.to(device=accelerator.device)
                     # (bsz, nframes, d_model) -> (bsz, nframes, d_model * 2)
-                    latent_model_input = torch.cat([model_input, initial_image_latents.unsqueeze(1).repeat(1, n_images, 1, 1, 1)], dim=2)
+                    noisy_latents_concatenated_with_initial_image_latents = torch.cat([noisy_latents, initial_image_latents.unsqueeze(1).repeat(1, n_images, 1, 1, 1)], dim=2)
 
-                    model_pred = unet(latent_model_input, timesteps, encoder_hidden_states, added_time_ids, return_dict=False)[0]
+                    model_pred = unet(
+                        noisy_latents_concatenated_with_initial_image_latents,
+                        timesteps,
+                        encoder_hidden_states,
+                        added_time_ids,
+                        return_dict=False
+                    )[0]
 
                     if USE_EDM_FORMULATION:
                         denoiser_prediction = (
-                            unsqueeze_to_batch(c_skip[timesteps]) * target_latent_sequences +
+                            unsqueeze_to_batch(c_skip[timesteps]) * noisy_latents +
                             unsqueeze_to_batch(c_out[timesteps]) * model_pred
                         )
                         loss = (
+                            # Scale MSE according to lambda(sigma)
                             ((denoiser_prediction.float() - target.float()) ** 2) *
                             unsqueeze_to_batch(lambda_values[timesteps])
                         ).mean()

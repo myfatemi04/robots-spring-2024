@@ -89,6 +89,7 @@ class VisualTrajectorySynthesizer(StableVideoDiffusionPipeline):
                     output_type: Optional[str] = "pil",
                     callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
                     callback_on_step_end_tensor_inputs: List[str] = ["latents"],
+                    was_trained_with_edm_preconditioning: bool = False,
                     return_dict: bool = True):
         # 0. Default height and width to unet
         height = height or self.unet.config.sample_size * self.vae_scale_factor
@@ -202,6 +203,21 @@ class VisualTrajectorySynthesizer(StableVideoDiffusionPipeline):
 
         # 8. Denoising loop
         # Sample a range of time steps
+
+        ### EDM preconditioning values: Used for sampling ###
+        alphas_cumprod = self.noise_scheduler.alphas_cumprod
+        sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod).to(device=device, dtype=latents.dtype)
+        sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - alphas_cumprod).to(device=device, dtype=latents.dtype)
+        sigma_values = sqrt_one_minus_alphas_cumprod.to(device=device, dtype=latents.dtype)
+
+        c_skip = 1 / (sigma_values ** 2 + 1)
+        c_out = -sigma_values * torch.rsqrt(sigma_values ** 2 + 1)
+        c_in = torch.rsqrt(sigma_values ** 2 + 1)
+        c_noise = 0.25 * torch.log(sigma_values)
+        # This is how much to weight the MSE loss at each time step.
+        # lambda_values = (1 + sigma_values ** 2) / (sigma_values ** 2)
+
+        unsqueeze_to_batch = lambda x: x.view(len(timesteps), *([1] * (len(latents.shape) - 1)))
         
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         self._num_timesteps = len(timesteps)
@@ -211,17 +227,35 @@ class VisualTrajectorySynthesizer(StableVideoDiffusionPipeline):
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-                # Concatenate image_latents over channels dimention
-                latent_model_input = torch.cat([latent_model_input, image_latents], dim=2)
-
-                # predict the noise residual
-                noise_pred = self.unet(
-                    latent_model_input,
-                    t,
-                    encoder_hidden_states=text_embeddings, # image_embeddings, # lol most hacky thing ever
-                    added_time_ids=added_time_ids,
-                    return_dict=False,
-                )[0]
+                if was_trained_with_edm_preconditioning:
+                    # Concatenate image_latents over channels dimension
+                    latent_model_input = torch.cat([latent_model_input, image_latents], dim=2)
+                    # Predict the noise residual
+                    noise_pred = self.unet(
+                        latent_model_input,
+                        t,
+                        encoder_hidden_states=text_embeddings, # image_embeddings, # lol most hacky thing ever
+                        added_time_ids=added_time_ids,
+                        return_dict=False,
+                    )[0]
+                else:
+                    # Concatenate image_latents over channels dimension
+                    # We scale the latent model input by c_in
+                    latent_model_input = torch.cat([latent_model_input * unsqueeze_to_batch(c_in[timesteps]), image_latents], dim=2)
+                    # Make predictions according to EDM preconditioning
+                    model_pred = self.unet(
+                        latent_model_input,
+                        t,
+                        encoder_hidden_states=text_embeddings, # image_embeddings, # lol most hacky thing ever
+                        added_time_ids=added_time_ids,
+                        return_dict=False,
+                    )[0]
+                    # Prediction for original sample
+                    x0_latents_prediction = (
+                        unsqueeze_to_batch(c_skip[timesteps]) * latent_model_input +
+                        unsqueeze_to_batch(c_out[timesteps]) * model_pred
+                    )
+                    noise_pred = (latent_model_input - sqrt_alphas_cumprod[t] * x0_latents_prediction) / sqrt_one_minus_alphas_cumprod[t]
 
                 # perform guidance
                 if self.do_classifier_free_guidance:
