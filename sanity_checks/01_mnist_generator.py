@@ -6,6 +6,12 @@ import tqdm
 
 import torch
 import torch.nn as nn
+import numpy as np
+import random
+
+torch.random.manual_seed(0)
+np.random.seed(0)
+random.seed(0)
 
 class Swish(nn.Module):
     def forward(self, x):
@@ -48,7 +54,7 @@ class ResidualBlock(nn.Module):
                  in_channels: int,
                  out_channels: int,
                  time_channels: int,
-                 n_groups: int = 8,
+                 n_groups: int = 1,
                  dropout: float = 0.1):
         super().__init__()
 
@@ -120,7 +126,7 @@ class ResidualBlock(nn.Module):
 # We use a custom AttentionBlock instead of Torch's built-in MultiHeadAttention
 # because we want to incorporate a GroupNorm.
 class AttentionBlock(nn.Module):
-    def __init__(self, n_channels: int, n_heads: int = 1, d_head: int | None = None, n_groups: int = 32):
+    def __init__(self, n_channels: int, n_heads: int = 1, d_head: int | None = None, n_groups: int = 1):
         super().__init__()
 
         self.n_channels = n_channels
@@ -129,7 +135,7 @@ class AttentionBlock(nn.Module):
             d_head = n_channels // n_heads
         self.d_head = d_head
 
-        self.norm = nn.GroupNorm(n_groups, n_channels)
+        # self.norm = nn.GroupNorm(n_groups, n_channels)
         # We will eventually chunk this into heads. However,
         # we treat it as if all the heads and their corresponding
         # query, key, and value projections were separate, just in
@@ -214,6 +220,8 @@ class UpBlock(nn.Module):
         h = self.res(x, t)
         if self.has_attn:
             h = self.attn(h, t)
+        else:
+            assert type(self.attn) == nn.Identity
         return h
 
 class Upsample(nn.Module):
@@ -339,6 +347,8 @@ class UNet(nn.Module):
     def forward(self, x: torch.Tensor, t: torch.Tensor):
         x = self.project_from_image(x)
 
+        t = self.time_emb(t)
+
         # The results from each DownBlock.
         h = [x]
 
@@ -348,6 +358,8 @@ class UNet(nn.Module):
             x = m(x, t)
             # print(x.shape)
             h.append(x)
+
+        x = self.middle(x, t)
 
         # print("Up")
         for m in self.up:
@@ -430,8 +442,6 @@ sigmas = sqrt_one_minus_alphabar
 ### Visualize Noise ###
 # visualize_noise_levels((X[0] + 1) / 2)
 
-torch.random.manual_seed(0)
-
 ### Train Model ###
 model = UNet(
     image_channels=1,
@@ -440,7 +450,6 @@ model = UNet(
     is_attention=[False, False, True, True],
     n_blocks=2
 ).to('cuda')
-time_embedder = TimeEmbeddings(256).to('cuda')
 X = X.to('cuda').float()
 y = y.to('cuda')
 optim = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -448,6 +457,7 @@ optim = torch.optim.Adam(model.parameters(), lr=1e-3)
 width, height = 32, 32
 batch_size = 128
 
+counter = 0
 for epoch in range(10):
     for i in (pbar := tqdm.tqdm(range(0, len(X), batch_size), desc='Training epoch %d' % epoch)):
         x = X[i:i + batch_size]
@@ -455,24 +465,36 @@ for epoch in range(10):
         t = torch.randint(1, 100, (x.shape[0], 1, 1, 1), device='cuda')
         noise = torch.randn_like(x)
         x_noisy = x_normalized * sqrt_alphabar[t - 1] + noise * sqrt_one_minus_alphabar[t - 1]
-        time_embeddings = time_embedder(t.view(x.shape[0]).float())
 
-        noise_pred = model(x_noisy, time_embeddings)
-        loss = 1/2 * ((noise_pred - noise) ** 2) * (sigmas[t - 1] ** -2).view(x.shape[0], 1, 1, 1)
+        noise_pred = model(x_noisy, t.view(x.shape[0]).float())
+        loss = 1/2 * (((noise_pred - noise) ** 2) * (sigmas[t - 1] ** -2).view(x.shape[0], 1, 1, 1)).mean()
         if torch.isnan(loss):
             print("Loss is NaN.")
-            print("noise_pred:")
-            print(noise_pred)
 
             # Go through the model again, but this time tracing for NaNs.
             # Check for NaNs in model parameters
+            num_nan_parameters = 0
             for name, param in model.named_parameters():
                 nan_mask = torch.isnan(param.data)
                 if torch.any(nan_mask):
-                    print(f"{nan_mask.nonzero().numel()} NaN values found in parameter '{name}'")
+                    num_nan_parameters += 1
+                    # print(f"{nan_mask.nonzero().numel()} NaN values found in parameter '{name}'")
+            print("Number of NaN parameters:", num_nan_parameters, "out of", sum(1 for _ in model.named_parameters()))
+            print(counter)
 
             exit()
+        
         optim.zero_grad()
         loss.backward()
+        # gradient clipping
+        for name, param in model.named_parameters():
+            if param.grad is None:
+                print("Param", name, "has no gradient")
+            elif torch.isnan(param.grad).any():
+                print("Param", name, "has NaN element in gradient")
+                exit()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optim.step()
         pbar.set_postfix(loss=loss.item())
+
+        counter += 1
