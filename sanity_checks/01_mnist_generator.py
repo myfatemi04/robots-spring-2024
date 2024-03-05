@@ -458,7 +458,7 @@ for epoch in range(10):
         time_embeddings = time_embedder(t.view(x.shape[0]).float())
 
         noise_pred = model(x_noisy, time_embeddings)
-        loss = ((noise_pred - noise) ** 2).mean()
+        loss = 1/2 * ((noise_pred - noise) ** 2) * (sigmas[t - 1] ** -2).view(x.shape[0], 1, 1, 1)
         if torch.isnan(loss):
             print("Loss is NaN.")
             print("noise_pred:")
