@@ -129,6 +129,7 @@ class AttentionBlock(nn.Module):
     def __init__(self, n_channels: int, n_heads: int = 1, d_head: int | None = None, n_groups: int = 1):
         super().__init__()
 
+        self.norm = nn.GroupNorm(n_groups, n_channels)
         self.n_channels = n_channels
         self.n_heads = n_heads
         if d_head is None:
@@ -154,6 +155,8 @@ class AttentionBlock(nn.Module):
 
         # Pretend that each element of [height * width] is a spatial token.
         # We convert to make it have the shape [batch_size, spatial_token_count, n_channels].
+        # Let's see if putting norm in before attention helps our stability.
+        x = self.norm(x)
         x = x.view(batch_size, n_channels, -1).permute(0, 2, 1)
 
         # Calculate keys, queries, and values.
@@ -335,7 +338,7 @@ class UNet(nn.Module):
 
         self.up = nn.ModuleList(up)
 
-        self.norm = nn.GroupNorm(num_groups=8, num_channels=n_channels)
+        self.norm = nn.GroupNorm(num_groups=1, num_channels=n_channels)
         self.act = Swish()
         self.project_to_image = nn.Conv2d(
             in_channels,
@@ -358,8 +361,11 @@ class UNet(nn.Module):
             x = m(x, t)
             # print(x.shape)
             h.append(x)
+            assert not torch.any(torch.isnan(x)), "downsampling"
 
         x = self.middle(x, t)
+
+        assert not torch.any(torch.isnan(x)), "middle"
 
         # print("Up")
         for m in self.up:
@@ -369,9 +375,15 @@ class UNet(nn.Module):
                 skip = h.pop()
                 # print(x.shape, skip.shape)
                 x = m(torch.cat((x, skip), dim=1), t)
+            
+            assert not torch.any(torch.isnan(x)), "upsampling"
 
-        x = self.act(self.norm(x))
+        x = self.norm(x)
+        assert not torch.any(torch.isnan(x)), "norm"
+        x = self.act(x)
+        assert not torch.any(torch.isnan(x)), "activation"
         x = self.project_to_image(x)
+        assert not torch.any(torch.isnan(x)), "project_to_image"
 
         return x
 
@@ -452,10 +464,14 @@ model = UNet(
 ).to('cuda')
 X = X.to('cuda').float()
 y = y.to('cuda')
-optim = torch.optim.Adam(model.parameters(), lr=1e-3)
+X = X[y == 5] # specifically only train on the number "5"
+optim = torch.optim.Adam(model.parameters(), lr=1e-4)
 
 width, height = 32, 32
 batch_size = 128
+
+loss_hist = []
+error = []
 
 counter = 0
 for epoch in range(10):
@@ -467,7 +483,14 @@ for epoch in range(10):
         x_noisy = x_normalized * sqrt_alphabar[t - 1] + noise * sqrt_one_minus_alphabar[t - 1]
 
         noise_pred = model(x_noisy, t.view(x.shape[0]).float())
-        loss = 1/2 * (((noise_pred - noise) ** 2) * (sigmas[t - 1] ** -2).view(x.shape[0], 1, 1, 1)).mean()
+        # this is the error per item
+        squared_error = ((noise_pred - noise) ** 2).mean(dim=(1, 2, 3))
+        # scale error for each instance based on the timestep
+        loss = 1/2 * (squared_error * (sigmas[t - 1] ** -2)).mean()
+
+        # visualize error as a function of timestep
+        error.append((squared_error, t))
+
         if torch.isnan(loss):
             print("Loss is NaN.")
 
@@ -487,14 +510,25 @@ for epoch in range(10):
         optim.zero_grad()
         loss.backward()
         # gradient clipping
+        hasnan = False
         for name, param in model.named_parameters():
             if param.grad is None:
                 print("Param", name, "has no gradient")
             elif torch.isnan(param.grad).any():
                 print("Param", name, "has NaN element in gradient")
-                exit()
+                hasnan = True
+        if hasnan:
+            print("loss was", loss)
+            exit()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optim.step()
         pbar.set_postfix(loss=loss.item())
+        loss_hist.append(loss.item())
 
         counter += 1
+
+torch.save(model.state_dict(), 'mnist_generator.pth')
+np.save('mnist_generator_loss.npy', np.array(loss_hist))
+import pickle
+with open('mnist_generator_error.pkl', 'wb') as f:
+    pickle.dump(error, f)
