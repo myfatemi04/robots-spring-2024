@@ -390,14 +390,15 @@ class UNet(nn.Module):
 def visualize_noise_levels(sample):
     plt.rcParams['figure.figsize'] = [12, 4]
 
-    num_timesteps = 100
+    num_timesteps = len(sqrt_alphabar)
 
     denormalize = lambda sample: ((sample + 1) / 2).permute(1, 2, 0).detach().cpu().numpy()
 
+    nshown = 11
     counter = 0
-    for timestep in range(0, num_timesteps + 1, (num_timesteps // 8)):
+    for timestep in range(0, num_timesteps + 1):
         if timestep == 0:
-            plt.subplot(1, 9, 1)
+            plt.subplot(1, nshown, 1)
             plt.imshow(denormalize(sample), cmap='gray')
             plt.axis('off')
             plt.title('Original')
@@ -411,7 +412,7 @@ def visualize_noise_levels(sample):
             # noise = model(sample.unsqueeze(0), time_embeddings)
             # noise = noise[0].detach().cpu().numpy()
 
-            plt.subplot(1, 9, timestep // (num_timesteps // 8) + 1)
+            plt.subplot(1, nshown, timestep + 1)
             plt.imshow(denormalize(sample_noisy), cmap='gray')
             plt.axis('off')
             plt.title(f't={timestep}')
@@ -443,8 +444,16 @@ y_df = mnist.target
 y = torch.tensor(y_df.to_numpy().astype(float))
 
 ### Noise Scheduler ###
-betas = torch.linspace(1e-4, 0.02, 100, device='cuda')
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+noise_levels = 10
+beta_min = 4e-4
+beta_max = 0.02
+betas = -(torch.cos(torch.linspace(0, np.pi, noise_levels, device=device)) - 1) / 2 * (beta_max - beta_min) + beta_min
 alphabar = torch.cumprod(1 - betas, dim=0)
+# scale to make alphabar = 0 at the end
+orig_alphabar0 = alphabar[0]
+alphabar = alphabar - alphabar[-1]
+alphabar = alphabar * orig_alphabar0 / alphabar[0]
 # signal coefficients
 sqrt_alphabar = torch.sqrt(alphabar)
 # noise std. deviations
@@ -452,37 +461,54 @@ sqrt_one_minus_alphabar = torch.sqrt(1 - alphabar)
 sigmas = sqrt_one_minus_alphabar
 
 ### Visualize Noise ###
-# visualize_noise_levels((X[0] + 1) / 2)
+if False:
+    plt.plot(betas)
+    plt.title("$\\beta$ values")
+    plt.show()
+
+    plt.plot(sqrt_alphabar)
+    plt.title("$\\sqrt{\\overline{\\alpha}}$ values")
+    plt.show()
+
+    visualize_noise_levels((X[0] + 1) / 2)
+
+    exit()
 
 ### Train Model ###
 model = UNet(
     image_channels=1,
-    n_channels=64,
+    n_channels=16,
     channel_multiples=[1, 2, 2, 4],
     is_attention=[False, False, True, True],
     n_blocks=2
-).to('cuda')
-X = X.to('cuda').float()
-y = y.to('cuda')
+).to(device)
+X = X.to(device).float()
+y = y.to(device)
 X = X[y == 5] # specifically only train on the number "5"
 optim = torch.optim.Adam(model.parameters(), lr=1e-4)
 
 width, height = 32, 32
-batch_size = 128
+batch_size = 512
 
 loss_hist = []
 error = []
 
+### !!! IMPORTANT PARAMETER !!! ###
+do_baseline = False
+
 counter = 0
-for epoch in range(10):
+for epoch in range(100 if not do_baseline else 1):
     for i in (pbar := tqdm.tqdm(range(0, len(X), batch_size), desc='Training epoch %d' % epoch)):
         x = X[i:i + batch_size]
         x_normalized = x * 2 - 1
-        t = torch.randint(1, 100, (x.shape[0], 1, 1, 1), device='cuda')
+        t = torch.randint(1, noise_levels + 1, (x.shape[0], 1, 1, 1), device='cuda')
         noise = torch.randn_like(x)
         x_noisy = x_normalized * sqrt_alphabar[t - 1] + noise * sqrt_one_minus_alphabar[t - 1]
 
-        noise_pred = model(x_noisy, t.view(x.shape[0]).float())
+        if do_baseline:
+            noise_pred = torch.zeros_like(x_noisy)
+        else:
+            noise_pred = model(x_noisy, t.view(x.shape[0]).float())
         # this is the error per item
         squared_error = ((noise_pred - noise) ** 2).mean(dim=(1, 2, 3))
         # scale error for each instance based on the timestep
@@ -507,28 +533,34 @@ for epoch in range(10):
 
             exit()
         
-        optim.zero_grad()
-        loss.backward()
-        # gradient clipping
-        hasnan = False
-        for name, param in model.named_parameters():
-            if param.grad is None:
-                print("Param", name, "has no gradient")
-            elif torch.isnan(param.grad).any():
-                print("Param", name, "has NaN element in gradient")
-                hasnan = True
-        if hasnan:
-            print("loss was", loss)
-            exit()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optim.step()
+        if not do_baseline:
+            optim.zero_grad()
+            loss.backward()
+            # gradient clipping
+            hasnan = False
+            for name, param in model.named_parameters():
+                if param.grad is None:
+                    print("Param", name, "has no gradient")
+                elif torch.isnan(param.grad).any():
+                    print("Param", name, "has NaN element in gradient")
+                    hasnan = True
+            if hasnan:
+                print("loss was", loss)
+                exit()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optim.step()
         pbar.set_postfix(loss=loss.item())
         loss_hist.append(loss.item())
 
         counter += 1
 
-torch.save(model.state_dict(), 'mnist_generator.pth')
-np.save('mnist_generator_loss.npy', np.array(loss_hist))
-import pickle
-with open('mnist_generator_error.pkl', 'wb') as f:
-    pickle.dump(error, f)
+if not do_baseline:
+    torch.save(model.state_dict(), 'mnist_generator.pth')
+    np.save('mnist_generator_loss.npy', np.array(loss_hist))
+    import pickle
+    with open('mnist_generator_error.pkl', 'wb') as f:
+        pickle.dump(error, f)
+else:
+    import pickle
+    with open('mnist_generator_error_baseline.pkl', 'wb') as f:
+        pickle.dump(error, f)
