@@ -1,6 +1,8 @@
 # Coding along with nn.labml.ai/diffusion/ddpm/unet.html.
 
 import math
+from matplotlib import pyplot as plt
+import tqdm
 
 import torch
 import torch.nn as nn
@@ -26,12 +28,13 @@ class TimeEmbeddings(nn.Module):
         half_dim = self.n_channels // 8
         # my_range goes from 0 to (half_dim - 1)
         my_range = torch.arange(half_dim, device=t.device, dtype=t.dtype)
-        emb = math.log(10_000) / (half_dim - 1)
-        # here we have an exponentially decaying sequence from 1 to 1/10,000
+        max_period = 1_000
+        emb = math.log(2 * torch.pi / (max_period * 2)) / (half_dim - 1)
+        # here we have an exponentially decaying sequence from 1 to 1/2,000
         # this represents frequencies of 1 to 1/10000
         # we only have `half_dim` dimensions because we will be doubling the dimension
         # for sines and cosines.
-        emb = torch.exp(-emb * my_range)
+        emb = torch.exp(emb * my_range)
         emb = t[:, None] * emb[None, :]
         emb = torch.cat([emb.sin(), emb.cos()], dim=1)
 
@@ -45,7 +48,7 @@ class ResidualBlock(nn.Module):
                  in_channels: int,
                  out_channels: int,
                  time_channels: int,
-                 n_groups: int = 32,
+                 n_groups: int = 8,
                  dropout: float = 0.1):
         super().__init__()
 
@@ -160,7 +163,7 @@ class AttentionBlock(nn.Module):
         # convert to head-wise values
         res = torch.einsum('bijh,bjhd->bihd', attention_scores, v)
         # compile the head-wise values into a single value
-        res = res.view(batch_size, -1, self.num_heads * self.d_head)
+        res = res.view(batch_size, -1, self.n_heads * self.d_head)
         res = self.out(res) + x
 
         res = res.permute(0, 2, 1).view(batch_size, n_channels, height, width)
@@ -175,10 +178,12 @@ class DownBlock(nn.Module):
             self.attn = AttentionBlock(out_channels)
         else:
             self.attn = nn.Identity()
+        self.has_attn = has_attn
     
     def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         h = self.res(x, t)
-        h = self.attn(h, t)
+        if self.has_attn:
+            h = self.attn(h, t)
         return h
 
 class MiddleBlock(nn.Module):
@@ -200,13 +205,15 @@ class UpBlock(nn.Module):
         # We concatenate the output from the first half of the unet.
         self.res = ResidualBlock(in_channels + out_channels, out_channels, time_channels)
         if has_attn:
-            self.attn = AttentionBlock(in_channels)
+            self.attn = AttentionBlock(out_channels)
         else:
             self.attn = nn.Identity()
+        self.has_attn = has_attn
         
     def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         h = self.res(x, t)
-        h = self.attn(h, t)
+        if self.has_attn:
+            h = self.attn(h, t)
         return h
 
 class Upsample(nn.Module):
@@ -267,11 +274,14 @@ class UNet(nn.Module):
         down = []
         in_channels = n_channels
         for i in range(n_resolutions):
-            out_channels = n_channels * channel_multiples[i]
+            print("Resolution:", i)
+            out_channels = in_channels * channel_multiples[i]
+            # This resolution level will give us `n_blocks + 1` outputs.
             # Repeat the downblocks `n_blocks` times.
             # After the first time, we maintain the number
             # of channels as `out_channels`.
             for _ in range(n_blocks):
+                print("DownBlock:", in_channels, out_channels)
                 down.append(
                     DownBlock(
                         in_channels,
@@ -295,8 +305,10 @@ class UNet(nn.Module):
         in_channels = out_channels
         for i in reversed(range(n_resolutions)):
             # Repeat the upblocks `n_blocks` times, in a similar
-            # way to how we did the downblocks.
+            # way to how we did the downblocks. Here, we create a
+            # total of `n_blocks + 1` upblocks.
             for _ in range(n_blocks):
+                print("UpBlock:", in_channels, in_channels)
                 up.append(
                     UpBlock(
                         in_channels,
@@ -306,6 +318,7 @@ class UNet(nn.Module):
                     )
                 )
             out_channels = in_channels // channel_multiples[i]
+            print("UpBlock:", in_channels, out_channels)
             up.append(UpBlock(in_channels, out_channels, time_channels, is_attention[i]))
             in_channels = out_channels
             # Add an upsample if we aren't at the final layer.
@@ -329,15 +342,20 @@ class UNet(nn.Module):
         # The results from each DownBlock.
         h = [x]
 
+        # print("Down")
+        # print(x.shape)
         for m in self.down:
             x = m(x, t)
+            # print(x.shape)
             h.append(x)
 
+        # print("Up")
         for m in self.up:
             if isinstance(m, Upsample):
                 x = m(x, t)
             else:
                 skip = h.pop()
+                # print(x.shape, skip.shape)
                 x = m(torch.cat((x, skip), dim=1), t)
 
         x = self.act(self.norm(x))
@@ -345,7 +363,116 @@ class UNet(nn.Module):
 
         return x
 
-# use a u-net architecture.
-class MnistGenerator(nn.Module):
-    pass
+def visualize_noise_levels(sample):
+    plt.rcParams['figure.figsize'] = [12, 4]
 
+    num_timesteps = 100
+
+    denormalize = lambda sample: ((sample + 1) / 2).permute(1, 2, 0).detach().cpu().numpy()
+
+    counter = 0
+    for timestep in range(0, num_timesteps + 1, (num_timesteps // 8)):
+        if timestep == 0:
+            plt.subplot(1, 9, 1)
+            plt.imshow(denormalize(sample), cmap='gray')
+            plt.axis('off')
+            plt.title('Original')
+        else:
+            noise = torch.randn_like(sample)
+            sample_noisy = sample * sqrt_alphabar[timestep - 1] + noise * sqrt_one_minus_alphabar[timestep - 1]
+
+            # t = torch.tensor([timestep], dtype=torch.float)
+
+            # time_embeddings = time_embedder(t)
+            # noise = model(sample.unsqueeze(0), time_embeddings)
+            # noise = noise[0].detach().cpu().numpy()
+
+            plt.subplot(1, 9, timestep // (num_timesteps // 8) + 1)
+            plt.imshow(denormalize(sample_noisy), cmap='gray')
+            plt.axis('off')
+            plt.title(f't={timestep}')
+
+        counter += 1
+
+    plt.tight_layout()
+    plt.show()
+            
+
+# Let's train our model! Iteration 01: No classifier guidance.
+# Note that attention is still used even without classifier guidance.
+# In the example code, attention is only used in the later layers,
+# where presumably the feature vectors are much richer.
+import sklearn.datasets
+import numpy as np
+
+### Data ###
+# Load the MNIST dataset.
+mnist = sklearn.datasets.fetch_openml('mnist_784', version=1)
+
+X_df = mnist.data
+X_numpy = X_df.to_numpy().astype(float)
+X = torch.tensor(X_numpy / 255.0).view(-1, 1, 28, 28)
+# Pad to size 32
+X = torch.nn.functional.pad(X, (2, 2, 2, 2), value=0)
+
+y_df = mnist.target
+y = torch.tensor(y_df.to_numpy().astype(float))
+
+### Noise Scheduler ###
+betas = torch.linspace(1e-4, 0.02, 100, device='cuda')
+alphabar = torch.cumprod(1 - betas, dim=0)
+# signal coefficients
+sqrt_alphabar = torch.sqrt(alphabar)
+# noise std. deviations
+sqrt_one_minus_alphabar = torch.sqrt(1 - alphabar)
+sigmas = sqrt_one_minus_alphabar
+
+### Visualize Noise ###
+# visualize_noise_levels((X[0] + 1) / 2)
+
+torch.random.manual_seed(0)
+
+### Train Model ###
+model = UNet(
+    image_channels=1,
+    n_channels=64,
+    channel_multiples=[1, 2, 2, 4],
+    is_attention=[False, False, True, True],
+    n_blocks=2
+).to('cuda')
+time_embedder = TimeEmbeddings(256).to('cuda')
+X = X.to('cuda').float()
+y = y.to('cuda')
+optim = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+width, height = 32, 32
+batch_size = 128
+
+for epoch in range(10):
+    for i in (pbar := tqdm.tqdm(range(0, len(X), batch_size), desc='Training epoch %d' % epoch)):
+        x = X[i:i + batch_size]
+        x_normalized = x * 2 - 1
+        t = torch.randint(1, 100, (x.shape[0], 1, 1, 1), device='cuda')
+        noise = torch.randn_like(x)
+        x_noisy = x_normalized * sqrt_alphabar[t - 1] + noise * sqrt_one_minus_alphabar[t - 1]
+        time_embeddings = time_embedder(t.view(x.shape[0]).float())
+
+        noise_pred = model(x_noisy, time_embeddings)
+        loss = ((noise_pred - noise) ** 2).mean()
+        if torch.isnan(loss):
+            print("Loss is NaN.")
+            print("noise_pred:")
+            print(noise_pred)
+
+            # Go through the model again, but this time tracing for NaNs.
+            # Check for NaNs in model parameters
+            for name, param in model.named_parameters():
+                nan_mask = torch.isnan(param.data)
+                if torch.any(nan_mask):
+                    print(f"{nan_mask.nonzero().numel()} NaN values found in parameter '{name}'")
+
+            exit()
+        optim.zero_grad()
+        loss.backward()
+        optim.step()
+        pbar.set_postfix(loss=loss.item())

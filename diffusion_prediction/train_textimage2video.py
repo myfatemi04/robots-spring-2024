@@ -502,7 +502,7 @@ class DistributedDiffusionTrainer:
             while target_image_counter < len(target_image_sequences_flat):
                 images = target_image_sequences_flat[target_image_counter:target_image_counter + target_image_encode_batch_size]
                 encoding = self.vae.encode(images)
-                sample = encoding.latent_dist.sample() * self.vae.config['scaling_factor'] # type: ignore
+                sample = encoding.latent_dist.sample() # * self.vae.config['scaling_factor'] # type: ignore
                 batches.append(sample)
                 target_image_counter += target_image_encode_batch_size
             target_latent_sequences_flat = torch.cat(batches, dim=0)

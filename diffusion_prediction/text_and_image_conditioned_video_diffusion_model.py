@@ -205,7 +205,7 @@ class VisualTrajectorySynthesizer(StableVideoDiffusionPipeline):
         # Sample a range of time steps
 
         ### EDM preconditioning values: Used for sampling ###
-        alphas_cumprod = self.noise_scheduler.alphas_cumprod
+        alphas_cumprod = self.scheduler.alphas_cumprod
         sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod).to(device=device, dtype=latents.dtype)
         sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - alphas_cumprod).to(device=device, dtype=latents.dtype)
         sigma_values = sqrt_one_minus_alphas_cumprod.to(device=device, dtype=latents.dtype)

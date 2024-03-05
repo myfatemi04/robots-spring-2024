@@ -42,7 +42,7 @@ LoRA_rank=256
 # Recommended to be 5.0. This is how the loss function is reweighted across samples.
 snr_gamma=5.0
 
-output_dir=experiments/003_snrgamma5_overfit1
+output_dir=experiments/005_edm_preconditioning_overfit_no_scaling_factor
 checkpoint_dir=`echo $output_dir`_checkpoints
 
 accelerate launch \
