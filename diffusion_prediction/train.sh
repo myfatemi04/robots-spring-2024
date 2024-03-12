@@ -42,7 +42,7 @@ LoRA_rank=256
 # Recommended to be 5.0. This is how the loss function is reweighted across samples.
 snr_gamma=5.0
 
-output_dir=experiments/005_edm_preconditioning_overfit_no_scaling_factor
+output_dir=experiments/006_image_pretraining
 checkpoint_dir=`echo $output_dir`_checkpoints
 
 accelerate launch \
@@ -66,4 +66,5 @@ accelerate launch \
 	--num_train_epochs $num_train_epochs \
 	--checkpointing_steps 250 \
 	--snr_gamma $snr_gamma \
+	--image_pretraining \
 	--max_train_samples $max_train_samples | tee -a logs/train_$(date +"%Y-%m-%d_%H-%M-%S").log

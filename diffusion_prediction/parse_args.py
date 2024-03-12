@@ -27,6 +27,13 @@ def parse_args():
         required=True,
         help="Path to pretrained model or model identifier from huggingface.co/models.",
     )
+    parser.add_argument(
+        "--image_pretraining",
+        action="store_true",
+        help=(
+            "Whether or not to clip videos to a single frame, to serve as large-scale image pretraining."
+        ),
+    )
     # Stable Video Diffusion XT does not include a text encoder out of the box. So we must include it ourselves,
     # separately.
     parser.add_argument(

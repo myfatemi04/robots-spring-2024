@@ -50,8 +50,6 @@ class VisualTrajectorySynthesizer(StableVideoDiffusionPipeline):
 
         # convert to single-token sequences
         encoded = self.text_encoder(input_ids=tokens)
-        print(encoded)
-        print(encoded.pooler_output.shape)
         text_embeddings = encoded.pooler_output.unsqueeze(1)
 
         # duplicate image embeddings for each generation per prompt, using mps friendly method

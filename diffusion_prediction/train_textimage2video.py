@@ -335,6 +335,8 @@ class DistributedDiffusionTrainer:
             tracker_config.pop("validation_prompts")
             accelerator.init_trackers(args.tracker_project_name, tracker_config)
 
+        self.max_frames_per_video = 25
+
     def collate_fn(self, batch):
         args = self.args
 
@@ -347,7 +349,7 @@ class DistributedDiffusionTrainer:
 
         imgseqs = [self.vae_image_processor.preprocess(imgseq, height=args.image_height, width=args.image_width) for (_, imgseq) in batch]
         minseqlen = min([len(x) for x in imgseqs])
-        minseqlen = min(25, minseqlen)
+        minseqlen = min(self.max_frames_per_video, minseqlen)
 
         # Randomly select a start and end time consistent with minseqlen.
         imgseqs_selected = []
@@ -511,7 +513,7 @@ class DistributedDiffusionTrainer:
 
         return target_latent_sequences
 
-    def train_loop(self):
+    def train_loop(self, is_image_pretraining=False):
         args = self.args
         unet = self.unet
         vae = self.vae
@@ -523,6 +525,9 @@ class DistributedDiffusionTrainer:
         text_encoder = self.text_encoder
         weight_dtype = self.weight_dtype
         tokenizer = self.tokenizer
+
+        if is_image_pretraining:
+            self.max_frames_per_video = 1
 
         total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
 
@@ -627,7 +632,7 @@ class DistributedDiffusionTrainer:
                     else:
                         noisy_latents = noise_scheduler.add_noise(target_latent_sequences, noise, timesteps) # type: ignore
 
-                    USE_EDM_FORMULATION = True
+                    USE_EDM_FORMULATION = False # True
 
                     if not USE_EDM_FORMULATION:
                         # Get the target for loss depending on the prediction type
@@ -692,30 +697,44 @@ class DistributedDiffusionTrainer:
                             unsqueeze_to_batch(c_skip[timesteps]) * noisy_latents +
                             unsqueeze_to_batch(c_out[timesteps]) * model_pred
                         )
-                        loss = (
-                            # Scale MSE according to lambda(sigma)
-                            ((denoiser_prediction.float() - target.float()) ** 2) *
-                            unsqueeze_to_batch(lambda_values[timesteps])
-                        ).mean()
-                    elif args.snr_gamma is None:
-                        loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+                        error_per_sample = ((denoiser_prediction.float() - target.float()) ** 2).mean(dim=(-1, -2, -3, -4))
+                        loss = (error_per_sample * unsqueeze_to_batch(lambda_values[timesteps])).mean()
                     else:
-                        # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
-                        # Since we predict the noise instead of x_0, the original formulation is slightly changed.
-                        # This is discussed in Section 4.2 of the same paper.
-                        snr = compute_snr(noise_scheduler, timesteps)
-                        mse_loss_weights = torch.stack([snr, args.snr_gamma * torch.ones_like(timesteps)], dim=1).min(
-                            dim=1
-                        )[0]
-                        noise_scheduler_prediction_type = noise_scheduler.config.prediction_type # type: ignore
-                        if noise_scheduler_prediction_type == "epsilon":
-                            mse_loss_weights = mse_loss_weights / snr
-                        elif noise_scheduler_prediction_type == "v_prediction":
-                            mse_loss_weights = mse_loss_weights / (snr + 1)
+                        # Mean across (seqlen, height, width, latent_dim)... i.e., all non-batch dimensions.
+                        error_per_sample = ((model_pred.float() - target.float()) ** 2).mean(dim=(-1, -2, -3, -4))
 
-                        loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
-                        loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
-                        loss = loss.mean()
+                        if args.snr_gamma is None:
+                            loss = torch.mean(error_per_sample)
+                        else:
+                            # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
+                            # Since we predict the noise instead of x_0, the original formulation is slightly changed.
+                            # This is discussed in Section 4.2 of the same paper.
+                            snr = compute_snr(noise_scheduler, timesteps)
+                            mse_loss_weights = torch.stack([snr, args.snr_gamma * torch.ones_like(timesteps)], dim=1).min(
+                                dim=1
+                            )[0]
+                            noise_scheduler_prediction_type = noise_scheduler.config.prediction_type # type: ignore
+                            if noise_scheduler_prediction_type == "epsilon":
+                                mse_loss_weights = mse_loss_weights / snr
+                            elif noise_scheduler_prediction_type == "v_prediction":
+                                mse_loss_weights = mse_loss_weights / (snr + 1)
+
+                            loss = torch.mean(error_per_sample * mse_loss_weights)
+
+                    # Mean across (seqlen, height, width, latent_dim)... i.e., all non-batch dimensions.
+                    error_per_sample = ((model_pred.float() - target.float()) ** 2).mean(dim=(-1, -2, -3, -4))
+
+                    # Log error for that specific block.
+                    bucket_errors = {}
+                    for i in range(error_per_sample.shape[0]):
+                        bucket = int((timesteps[i] // 100) * 100)
+                        bucket_string = str(bucket) + "_to_" + str(bucket + 100)
+                        if bucket_string not in bucket_errors:
+                            bucket_errors[bucket_string] = []
+                        bucket_errors[bucket_string].append(float(error_per_sample[i]))
+                    
+                    for bucket_string, errors in bucket_errors.items():
+                        accelerator.log({"train_error_" + bucket_string: sum(errors) / len(errors)})
 
                     # Gather the losses across all processes for logging (if we use distributed training).
                     avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean() # type: ignore
