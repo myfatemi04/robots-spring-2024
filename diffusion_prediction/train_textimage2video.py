@@ -170,7 +170,8 @@ class DistributedDiffusionTrainer:
                 ).repo_id
 
         # Load models
-        self.noise_scheduler: DDPMScheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler") # type: ignore
+        ns: DDPMScheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler") # type: ignore
+        self.noise_scheduler: DDPMScheduler = ns
         self.tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(args.pretrained_text_encoder_model_name_or_path) # type: ignore
 
         # Currently Accelerate doesn't know how to handle multiple models under Deepspeed ZeRO stage 3.
@@ -605,6 +606,8 @@ class DistributedDiffusionTrainer:
                     # All images in the same sequence must have the
                     # same timestep.
                     # Make sure the device matches the latents
+                    unsqueeze_to_batch = lambda x: x.view(len(timesteps), *([1] * (len(target_latent_sequences.shape) - 1)))
+
                     timesteps = torch.randint(
                         0, noise_scheduler.config.num_train_timesteps, # type: ignore
                         (batch_size,),

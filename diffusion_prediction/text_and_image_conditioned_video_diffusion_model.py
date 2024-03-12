@@ -225,7 +225,7 @@ class VisualTrajectorySynthesizer(StableVideoDiffusionPipeline):
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-                if was_trained_with_edm_preconditioning:
+                if not was_trained_with_edm_preconditioning:
                     # Concatenate image_latents over channels dimension
                     latent_model_input = torch.cat([latent_model_input, image_latents], dim=2)
                     # Predict the noise residual
@@ -239,7 +239,8 @@ class VisualTrajectorySynthesizer(StableVideoDiffusionPipeline):
                 else:
                     # Concatenate image_latents over channels dimension
                     # We scale the latent model input by c_in
-                    latent_model_input = torch.cat([latent_model_input * unsqueeze_to_batch(c_in[timesteps]), image_latents], dim=2)
+                    print(t, i, len(timesteps), len(c_in), timesteps)
+                    latent_model_input = torch.cat([latent_model_input * unsqueeze_to_batch(c_in[t]), image_latents], dim=2)
                     # Make predictions according to EDM preconditioning
                     model_pred = self.unet(
                         latent_model_input,
@@ -250,8 +251,8 @@ class VisualTrajectorySynthesizer(StableVideoDiffusionPipeline):
                     )[0]
                     # Prediction for original sample
                     x0_latents_prediction = (
-                        unsqueeze_to_batch(c_skip[timesteps]) * latent_model_input +
-                        unsqueeze_to_batch(c_out[timesteps]) * model_pred
+                        unsqueeze_to_batch(c_skip[t]) * latent_model_input +
+                        unsqueeze_to_batch(c_out[t]) * model_pred
                     )
                     noise_pred = (latent_model_input - sqrt_alphas_cumprod[t] * x0_latents_prediction) / sqrt_one_minus_alphas_cumprod[t]
 
@@ -278,6 +279,7 @@ class VisualTrajectorySynthesizer(StableVideoDiffusionPipeline):
             # cast back to fp16 if needed
             if needs_upcasting:
                 self.vae.to(dtype=torch.float16)
+            print(latents.shape)
             frames = self.decode_latents(latents, num_frames, decode_chunk_size)
             frames = tensor2vid(frames, self.image_processor, output_type=output_type)
         else:
@@ -286,3 +288,24 @@ class VisualTrajectorySynthesizer(StableVideoDiffusionPipeline):
         self.maybe_free_model_hooks()
 
         return frames
+
+def add_noise(timesteps, target_latent_sequences, noise_offset, input_perturbation):
+    # Sample noise that we'll add to the latents.
+    noise = torch.randn_like(target_latent_sequences)
+
+    if noise_offset:
+        # https://www.crosslabs.org//blog/diffusion-with-offset-noise
+        noise += noise_offset * torch.randn(
+            (target_latent_sequences.shape[0], target_latent_sequences.shape[1], 1, 1),
+            device=target_latent_sequences.device
+        )
+
+    # Add noise to the latents according to the noise magnitude at each timestep
+    # (this is the forward diffusion process)
+    if input_perturbation:
+        new_noise = noise + input_perturbation * torch.randn_like(noise)
+        noisy_latents = noise_scheduler.add_noise(target_latent_sequences, new_noise, timesteps) # type: ignore
+    else:
+        noisy_latents = noise_scheduler.add_noise(target_latent_sequences, noise, timesteps) # type: ignore
+
+    return noisy_latents
