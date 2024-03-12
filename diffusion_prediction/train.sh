@@ -32,12 +32,12 @@ train_batch_size=1
 
 # Train on all samples for 1 epoch.
 # We save intermediate models with checkpoints.
-max_train_samples=1
+max_train_samples=10
 num_train_epochs=1000
 
 # Using rank=16 reduces to ~6m trainable parameters.
 # Rank is a linear function of num. parameters thereafter.
-LoRA_rank=256
+LoRA_rank=128
 
 # Recommended to be 5.0. This is how the loss function is reweighted across samples.
 snr_gamma=5.0
@@ -66,5 +66,5 @@ accelerate launch \
 	--num_train_epochs $num_train_epochs \
 	--checkpointing_steps 250 \
 	--snr_gamma $snr_gamma \
-	--image_pretraining \
 	--max_train_samples $max_train_samples | tee -a logs/train_$(date +"%Y-%m-%d_%H-%M-%S").log
+# --image-pretraining

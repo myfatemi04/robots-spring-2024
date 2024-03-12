@@ -42,7 +42,7 @@ from transformers.utils import ContextManagers
 
 import diffusers
 from diffusers.models.autoencoders.autoencoder_kl_temporal_decoder import AutoencoderKLTemporalDecoder
-from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
+from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler # DDPMScheduler
 from diffusers import StableVideoDiffusionPipeline, UNetSpatioTemporalConditionModel # type: ignore
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel, compute_snr, cast_training_params
@@ -170,8 +170,8 @@ class DistributedDiffusionTrainer:
                 ).repo_id
 
         # Load models
-        ns: DDPMScheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler") # type: ignore
-        self.noise_scheduler: DDPMScheduler = ns
+        ns: EulerDiscreteScheduler = EulerDiscreteScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler") # type: ignore
+        self.noise_scheduler: EulerDiscreteScheduler = ns
         self.tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(args.pretrained_text_encoder_model_name_or_path) # type: ignore
 
         # Currently Accelerate doesn't know how to handle multiple models under Deepspeed ZeRO stage 3.
@@ -543,9 +543,13 @@ class DistributedDiffusionTrainer:
         # Preconditioning functions that are based on noise level.
         # sigma_values is an array representing the noise level at
         # each time step.
-        alphas_cumprod = self.noise_scheduler.alphas_cumprod
-        sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod) ** 0.5
-        sigma_values = sqrt_one_minus_alphas_cumprod.to(device=accelerator.device, dtype=weight_dtype)
+        self.noise_scheduler.set_timesteps(1000, device=accelerator.device)
+
+        # sigma_values.shape: 1001 (includes sigma=0 at the end)
+        sigma_values = self.noise_scheduler.sigmas.to(device=accelerator.device, dtype=weight_dtype)
+        # alphas_cumprod = self.noise_scheduler.alphas_cumprod
+        # sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod) ** 0.5
+        # sigma_values = sqrt_one_minus_alphas_cumprod.to(device=accelerator.device, dtype=weight_dtype)
 
         c_skip = 1 / (sigma_values ** 2 + 1)
         c_out = -sigma_values * torch.rsqrt(sigma_values ** 2 + 1)
@@ -602,42 +606,47 @@ class DistributedDiffusionTrainer:
                         image_sequences.to(device=accelerator.device, dtype=self.weight_dtype)
                     )
 
+                    USE_EDM_FORMULATION = True
+                    assert USE_EDM_FORMULATION, "Stable Video Diffusion was trained with EDM preconditioning. It MUST be active."
+
                     # Sample a random timestep for each sequence.
                     # All images in the same sequence must have the
                     # same timestep.
                     # Make sure the device matches the latents
                     unsqueeze_to_batch = lambda x: x.view(len(timesteps), *([1] * (len(target_latent_sequences.shape) - 1)))
 
-                    timesteps = torch.randint(
+                    step_ids = torch.randint(
                         0, noise_scheduler.config.num_train_timesteps, # type: ignore
                         (batch_size,),
                         device=target_latent_sequences.device
                     )
-                    timesteps = timesteps.long()
+                    timesteps = noise_scheduler.timesteps[step_ids]
 
                     # Sample noise that we'll add to the latents.
                     noise = torch.randn_like(target_latent_sequences)
 
-                    unsqueeze_to_batch = lambda x: x.view(len(timesteps), *([1] * (len(target_latent_sequences.shape) - 1)))
+                    if USE_EDM_FORMULATION:
+                        assert (not args.noise_offset) and (not args.input_perturbation), \
+                            "Noise offset and input perturbation are not supported with EDM preconditioning."
 
-                    if args.noise_offset:
-                        # https://www.crosslabs.org//blog/diffusion-with-offset-noise
-                        noise += args.noise_offset * torch.randn(
-                            (target_latent_sequences.shape[0], target_latent_sequences.shape[1], 1, 1),
-                            device=target_latent_sequences.device
-                        )
-
-                    # Add noise to the latents according to the noise magnitude at each timestep
-                    # (this is the forward diffusion process)
-                    if args.input_perturbation:
-                        new_noise = noise + args.input_perturbation * torch.randn_like(noise)
-                        noisy_latents = noise_scheduler.add_noise(target_latent_sequences, new_noise, timesteps) # type: ignore
+                        # We directly calculate the predicted x0 and then use that for backpropagation.
+                        target = target_latent_sequences
                     else:
-                        noisy_latents = noise_scheduler.add_noise(target_latent_sequences, noise, timesteps) # type: ignore
+                        if args.noise_offset:
+                            # https://www.crosslabs.org//blog/diffusion-with-offset-noise
+                            noise += args.noise_offset * torch.randn(
+                                (target_latent_sequences.shape[0], target_latent_sequences.shape[1], 1, 1),
+                                device=target_latent_sequences.device
+                            )
 
-                    USE_EDM_FORMULATION = False # True
+                        # Add noise to the latents according to the noise magnitude at each timestep
+                        # (this is the forward diffusion process)
+                        if args.input_perturbation:
+                            new_noise = noise + args.input_perturbation * torch.randn_like(noise)
+                            noisy_latents = noise_scheduler.add_noise(target_latent_sequences, new_noise, timesteps) # type: ignore
+                        else:
+                            noisy_latents = noise_scheduler.add_noise(target_latent_sequences, noise, timesteps) # type: ignore
 
-                    if not USE_EDM_FORMULATION:
                         # Get the target for loss depending on the prediction type
                         if args.prediction_type is not None:
                             # set prediction_type of scheduler if defined
@@ -651,11 +660,8 @@ class DistributedDiffusionTrainer:
                             target = noise_scheduler.get_velocity(target_latent_sequences, noise, timesteps) # type: ignore
                         else:
                             raise ValueError(f"Unknown prediction type {noise_scheduler_prediction_type}")
-                    else:
-                        noise = noise * unsqueeze_to_batch(sigma_values[timesteps])
-                        noisy_latents = unsqueeze_to_batch(c_in[timesteps]) * (target_latent_sequences + noise)
-                        target = target_latent_sequences
 
+                    #region Prepare model inputs
                     # Get the text embedding sequences for conditioning.
                     # Right now, just use pooler output; but at some point, would like to condition on all input tokens.
                     # This is a tensor of [bsz, d_model] --unsqueeze-> [bsz, 1, d_model]
@@ -685,7 +691,23 @@ class DistributedDiffusionTrainer:
                     )
                     added_time_ids = added_time_ids.to(device=accelerator.device)
                     # (bsz, nframes, d_model) -> (bsz, nframes, d_model * 2)
-                    noisy_latents_concatenated_with_initial_image_latents = torch.cat([noisy_latents, initial_image_latents.unsqueeze(1).repeat(1, n_images, 1, 1, 1)], dim=2)
+                    # noisy_latents = x + n
+                    # Multiply by c_in (preconditioning).
+                    # model := F_theta(c_in * (x + n), c_noise(sigma))
+                    noisy_latents_scaled = noise_scheduler.scheduler.scale_model_input(
+                        noisy_latents,
+                        timesteps
+                    )
+                    # Model input: [scaled noisy latents (cat) initial image latents]
+                    noisy_latents_concatenated_with_initial_image_latents = torch.cat([
+                        noisy_latents_scaled,
+                        initial_image_latents.unsqueeze(1).repeat(1, n_images, 1, 1, 1)
+                    ], dim=2)
+                    #endregion
+
+                    ###########################
+                    # CREATE MODEL PREDICTION #
+                    ###########################
 
                     model_pred = unet(
                         noisy_latents_concatenated_with_initial_image_latents,
@@ -695,13 +717,18 @@ class DistributedDiffusionTrainer:
                         return_dict=False
                     )[0]
 
+                    assert USE_EDM_FORMULATION, "Stable Video Diffusion was trained with EDM preconditioning. It MUST be active."
                     if USE_EDM_FORMULATION:
+                        # Denoised(x + n) = F(c_in * (x + n), c_noise(sigma)) * c_out + (x + n) * c_skip
                         denoiser_prediction = (
-                            unsqueeze_to_batch(c_skip[timesteps]) * noisy_latents +
-                            unsqueeze_to_batch(c_out[timesteps]) * model_pred
+                            unsqueeze_to_batch(c_skip[step_ids]) * noisy_latents +
+                            unsqueeze_to_batch(c_out[step_ids]) * model_pred
                         )
+                        # Calculate MSE, but on a per-video basis.
+                        # The MSE should be weighted according to lambda, which is calculated above.
                         error_per_sample = ((denoiser_prediction.float() - target.float()) ** 2).mean(dim=(-1, -2, -3, -4))
-                        loss = (error_per_sample * unsqueeze_to_batch(lambda_values[timesteps])).mean()
+                        # Reweight by lambda(sigma).
+                        loss = (error_per_sample * unsqueeze_to_batch(lambda_values[step_ids])).mean()
                     else:
                         # Mean across (seqlen, height, width, latent_dim)... i.e., all non-batch dimensions.
                         error_per_sample = ((model_pred.float() - target.float()) ** 2).mean(dim=(-1, -2, -3, -4))
@@ -728,16 +755,16 @@ class DistributedDiffusionTrainer:
                     error_per_sample = ((model_pred.float() - target.float()) ** 2).mean(dim=(-1, -2, -3, -4))
 
                     # Log error for that specific block.
-                    bucket_errors = {}
-                    for i in range(error_per_sample.shape[0]):
-                        bucket = int((timesteps[i] // 100) * 100)
-                        bucket_string = str(bucket) + "_to_" + str(bucket + 100)
-                        if bucket_string not in bucket_errors:
-                            bucket_errors[bucket_string] = []
-                        bucket_errors[bucket_string].append(float(error_per_sample[i]))
+                    # bucket_errors = {}
+                    # for i in range(error_per_sample.shape[0]):
+                    #     bucket = int((timesteps[i] // 100) * 100)
+                    #     bucket_string = str(bucket) + "_to_" + str(bucket + 100)
+                    #     if bucket_string not in bucket_errors:
+                    #         bucket_errors[bucket_string] = []
+                    #     bucket_errors[bucket_string].append(float(error_per_sample[i]))
                     
-                    for bucket_string, errors in bucket_errors.items():
-                        accelerator.log({"train_error_" + bucket_string: sum(errors) / len(errors)})
+                    # for bucket_string, errors in bucket_errors.items():
+                    #     accelerator.log({"train_error_" + bucket_string: sum(errors) / len(errors)})
 
                     # Gather the losses across all processes for logging (if we use distributed training).
                     avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean() # type: ignore
