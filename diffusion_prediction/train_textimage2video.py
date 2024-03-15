@@ -269,11 +269,15 @@ class DistributedDiffusionTrainer:
                 # Create random torch.utils.data.Subset of original dataset.
                 # indices_to_keep = torch.randperm(len(train_dataset))[:args.max_train_samples]
                 # train_dataset = torch.utils.data.Subset(train_dataset, indices_to_keep)
-                self.dataset = torch.utils.data.Subset(self.dataset, list(range(args.max_train_samples)))
+                import random
+                random.seed(0)
+                samples = list(range(args.max_train_samples))
+                random.shuffle(samples)
+                self.dataset = torch.utils.data.Subset(self.dataset, samples)
 
         self.dataloader = torch.utils.data.DataLoader(
             self.dataset,
-            shuffle=True,
+            shuffle=False, # for deterministic order
             batch_size=args.train_batch_size,
             num_workers=args.dataloader_num_workers,
             collate_fn=self.collate_fn
@@ -546,17 +550,54 @@ class DistributedDiffusionTrainer:
         self.noise_scheduler.set_timesteps(1000, device=accelerator.device)
 
         # sigma_values.shape: 1001 (includes sigma=0 at the end)
-        sigma_values = self.noise_scheduler.sigmas.to(device=accelerator.device, dtype=weight_dtype)
+        sigma_values = self.noise_scheduler.sigmas[:-1].to(device=accelerator.device)
+        # use log sigma ~ Normal(P_mean, P_std)
+        # aim for a slight preference towards lower noise levels.
+        P_mean = -0.5
+        P_std = 1.4
+        sigma_likelihood_propto = torch.exp(((torch.log(sigma_values) - P_mean) / P_std) ** 2)
+        sigma_likelihood_propto = sigma_likelihood_propto / sigma_likelihood_propto.sum()
         # alphas_cumprod = self.noise_scheduler.alphas_cumprod
         # sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod) ** 0.5
         # sigma_values = sqrt_one_minus_alphas_cumprod.to(device=accelerator.device, dtype=weight_dtype)
 
         c_skip = 1 / (sigma_values ** 2 + 1)
         c_out = -sigma_values * torch.rsqrt(sigma_values ** 2 + 1)
+        # Automatically calculated by the EulerDiscreteScheduler
         c_in = torch.rsqrt(sigma_values ** 2 + 1)
+        # Automatically calculated by the EulerDiscreteScheduler as `timesteps`
         c_noise = 0.25 * torch.log(sigma_values)
         # This is how much to weight the MSE loss at each time step.
         lambda_values = (1 + sigma_values ** 2) / (sigma_values ** 2)
+
+        # print(torch.any(torch.isinf(c_skip)))
+        # print(torch.any(torch.isinf(c_out)))
+        # print(torch.any(torch.isinf(c_in)))
+        # print(torch.any(torch.isinf(c_noise)))
+        # print(torch.any(torch.isinf(lambda_values)))
+
+        # These need to be float32, otherwise they magically
+        # turn into infty :(
+        # c_skip = c_skip.to(weight_dtype)
+        # c_out = c_out.to(weight_dtype)
+        # c_in = c_in.to(weight_dtype)
+        # c_noise = c_noise.to(weight_dtype)
+        # lambda_values = lambda_values.to(weight_dtype)
+
+        assert not (
+            torch.any(torch.isnan(c_skip)) or
+            torch.any(torch.isnan(c_out)) or
+            torch.any(torch.isnan(c_in)) or
+            torch.any(torch.isnan(c_noise)) or
+            torch.any(torch.isnan(lambda_values))
+        ), "An EDM preconditioning coefficient was NaN."
+        assert not (
+            torch.any(torch.isinf(c_skip)) or
+            torch.any(torch.isinf(c_out)) or
+            torch.any(torch.isinf(c_in)) or
+            torch.any(torch.isinf(c_noise)) or
+            torch.any(torch.isinf(lambda_values))
+        ), "An EDM preconditioning coefficient was inf."
 
         global_step = 0
         initial_global_step = 0
@@ -602,9 +643,10 @@ class DistributedDiffusionTrainer:
                     # Note: VAE encoder is single-image, VAE decoder is temporal
                     initial_image_latents = self.vae.encode(initial_images).latent_dist.mode() # type: ignore
 
+                    # Multiply by the VAE scaling factor, which was used during training
                     target_latent_sequences = self.encode_latent_sequences(
                         image_sequences.to(device=accelerator.device, dtype=self.weight_dtype)
-                    )
+                    ) * self.vae.config.scaling_factor # type: ignore
 
                     USE_EDM_FORMULATION = True
                     assert USE_EDM_FORMULATION, "Stable Video Diffusion was trained with EDM preconditioning. It MUST be active."
@@ -613,13 +655,16 @@ class DistributedDiffusionTrainer:
                     # All images in the same sequence must have the
                     # same timestep.
                     # Make sure the device matches the latents
-                    unsqueeze_to_batch = lambda x: x.view(len(timesteps), *([1] * (len(target_latent_sequences.shape) - 1)))
+                    unsqueeze_to_batch = lambda x: x.view(batch_size, *([1] * (len(target_latent_sequences.shape) - 1)))
 
-                    step_ids = torch.randint(
-                        0, noise_scheduler.config.num_train_timesteps, # type: ignore
-                        (batch_size,),
-                        device=target_latent_sequences.device
-                    )
+                    # Sample with probabilities `sigma_likelihood_propto`
+                    # Swap out naïve sampling for a better function that prefers the more informative denoising layers
+                    step_ids = torch.multinomial(sigma_likelihood_propto, batch_size, replacement=True).to(device=accelerator.device)
+                    # step_ids = torch.randint(
+                    #     0, noise_scheduler.config.num_train_timesteps, # type: ignore
+                    #     (batch_size,),
+                    #     device=target_latent_sequences.device
+                    # )
                     timesteps = noise_scheduler.timesteps[step_ids]
 
                     # Sample noise that we'll add to the latents.
@@ -631,6 +676,7 @@ class DistributedDiffusionTrainer:
 
                         # We directly calculate the predicted x0 and then use that for backpropagation.
                         target = target_latent_sequences
+                        noisy_latents = noise_scheduler.add_noise(target_latent_sequences, noise, timesteps) # type: ignore
                     else:
                         if args.noise_offset:
                             # https://www.crosslabs.org//blog/diffusion-with-offset-noise
@@ -694,10 +740,11 @@ class DistributedDiffusionTrainer:
                     # noisy_latents = x + n
                     # Multiply by c_in (preconditioning).
                     # model := F_theta(c_in * (x + n), c_noise(sigma))
-                    noisy_latents_scaled = noise_scheduler.scheduler.scale_model_input(
-                        noisy_latents,
-                        timesteps
-                    )
+                    # noisy_latents_scaled = noise_scheduler.scale_model_input(noisy_latents, timesteps)
+                    
+                    # Scale down by c_in
+                    noisy_latents_scaled = (noisy_latents * unsqueeze_to_batch(c_in[step_ids])).to(weight_dtype)
+
                     # Model input: [scaled noisy latents (cat) initial image latents]
                     noisy_latents_concatenated_with_initial_image_latents = torch.cat([
                         noisy_latents_scaled,
@@ -721,14 +768,21 @@ class DistributedDiffusionTrainer:
                     if USE_EDM_FORMULATION:
                         # Denoised(x + n) = F(c_in * (x + n), c_noise(sigma)) * c_out + (x + n) * c_skip
                         denoiser_prediction = (
-                            unsqueeze_to_batch(c_skip[step_ids]) * noisy_latents +
-                            unsqueeze_to_batch(c_out[step_ids]) * model_pred
+                            unsqueeze_to_batch(c_skip[step_ids]) * noisy_latents.float() +
+                            unsqueeze_to_batch(c_out[step_ids]) * model_pred.float()
                         )
                         # Calculate MSE, but on a per-video basis.
                         # The MSE should be weighted according to lambda, which is calculated above.
                         error_per_sample = ((denoiser_prediction.float() - target.float()) ** 2).mean(dim=(-1, -2, -3, -4))
+                        
+                        assert not torch.any(torch.isnan(model_pred)), "nan in pred"
+                        assert not torch.any(torch.isinf(model_pred)), "inf in pred"
+                        assert not torch.any(torch.isnan(error_per_sample)), "nan in error"
+                        assert not torch.any(torch.isinf(error_per_sample)), "inf in error"
                         # Reweight by lambda(sigma).
                         loss = (error_per_sample * unsqueeze_to_batch(lambda_values[step_ids])).mean()
+                        assert not torch.any(torch.isinf(lambda_values[step_ids])), "inf in lambda_values"
+                        assert not torch.isinf(loss), "loss is inf"
                     else:
                         # Mean across (seqlen, height, width, latent_dim)... i.e., all non-batch dimensions.
                         error_per_sample = ((model_pred.float() - target.float()) ** 2).mean(dim=(-1, -2, -3, -4))

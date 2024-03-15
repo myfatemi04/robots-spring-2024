@@ -2,9 +2,9 @@
 
 # https://www.rc.virginia.edu/userinfo/rivanna/basepod/
 #SBATCH --time=2:00:00
-#SBATCH --job-name=Notebook
+#SBATCH --job-name=A6000
 #SBATCH --mem=32G
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:a6000:1
 #SBATCH --account=collabrobogroup
 #SBATCH --partition=gpu
 #SBATCH -e slurm-%j-Notebook_GPU.err

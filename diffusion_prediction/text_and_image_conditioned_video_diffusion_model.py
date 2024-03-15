@@ -225,36 +225,36 @@ class VisualTrajectorySynthesizer(StableVideoDiffusionPipeline):
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-                if not was_trained_with_edm_preconditioning:
-                    # Concatenate image_latents over channels dimension
-                    latent_model_input = torch.cat([latent_model_input, image_latents], dim=2)
-                    # Predict the noise residual
-                    noise_pred = self.unet(
-                        latent_model_input,
-                        t,
-                        encoder_hidden_states=text_embeddings, # image_embeddings, # lol most hacky thing ever
-                        added_time_ids=added_time_ids,
-                        return_dict=False,
-                    )[0]
-                else:
-                    # Concatenate image_latents over channels dimension
-                    # We scale the latent model input by c_in
-                    print(t, i, len(timesteps), len(c_in), timesteps)
-                    latent_model_input = torch.cat([latent_model_input * unsqueeze_to_batch(c_in[t]), image_latents], dim=2)
-                    # Make predictions according to EDM preconditioning
-                    model_pred = self.unet(
-                        latent_model_input,
-                        t,
-                        encoder_hidden_states=text_embeddings, # image_embeddings, # lol most hacky thing ever
-                        added_time_ids=added_time_ids,
-                        return_dict=False,
-                    )[0]
-                    # Prediction for original sample
-                    x0_latents_prediction = (
-                        unsqueeze_to_batch(c_skip[t]) * latent_model_input +
-                        unsqueeze_to_batch(c_out[t]) * model_pred
-                    )
-                    noise_pred = (latent_model_input - sqrt_alphas_cumprod[t] * x0_latents_prediction) / sqrt_one_minus_alphas_cumprod[t]
+                # if not was_trained_with_edm_preconditioning:
+                # Concatenate image_latents over channels dimension
+                latent_model_input = torch.cat([latent_model_input, image_latents], dim=2)
+                # Predict the noise residual
+                noise_pred = self.unet(
+                    latent_model_input,
+                    t,
+                    encoder_hidden_states=text_embeddings, # image_embeddings, # lol most hacky thing ever
+                    added_time_ids=added_time_ids,
+                    return_dict=False,
+                )[0]
+                # else:
+                #     # Concatenate image_latents over channels dimension
+                #     # We scale the latent model input by c_in
+                #     print(t, i, len(timesteps), len(c_in), timesteps)
+                #     latent_model_input = torch.cat([latent_model_input * unsqueeze_to_batch(c_in[t]), image_latents], dim=2)
+                #     # Make predictions according to EDM preconditioning
+                #     model_pred = self.unet(
+                #         latent_model_input,
+                #         t,
+                #         encoder_hidden_states=text_embeddings, # image_embeddings, # lol most hacky thing ever
+                #         added_time_ids=added_time_ids,
+                #         return_dict=False,
+                #     )[0]
+                #     # Prediction for original sample
+                #     x0_latents_prediction = (
+                #         unsqueeze_to_batch(c_skip[t]) * latent_model_input +
+                #         unsqueeze_to_batch(c_out[t]) * model_pred
+                #     )
+                #     noise_pred = (latent_model_input - sqrt_alphas_cumprod[t] * x0_latents_prediction) / sqrt_one_minus_alphas_cumprod[t]
 
                 # perform guidance
                 if self.do_classifier_free_guidance:
@@ -279,7 +279,6 @@ class VisualTrajectorySynthesizer(StableVideoDiffusionPipeline):
             # cast back to fp16 if needed
             if needs_upcasting:
                 self.vae.to(dtype=torch.float16)
-            print(latents.shape)
             frames = self.decode_latents(latents, num_frames, decode_chunk_size)
             frames = tensor2vid(frames, self.image_processor, output_type=output_type)
         else:

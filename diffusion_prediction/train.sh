@@ -32,17 +32,19 @@ train_batch_size=1
 
 # Train on all samples for 1 epoch.
 # We save intermediate models with checkpoints.
-max_train_samples=10
-num_train_epochs=1000
+max_train_samples=0
+num_train_epochs=1
+
+input_perturbation=0
 
 # Using rank=16 reduces to ~6m trainable parameters.
 # Rank is a linear function of num. parameters thereafter.
-LoRA_rank=128
+LoRA_rank=512
 
 # Recommended to be 5.0. This is how the loss function is reweighted across samples.
 snr_gamma=5.0
 
-output_dir=experiments/006_image_pretraining
+output_dir=experiments/011_better_step_sampling
 checkpoint_dir=`echo $output_dir`_checkpoints
 
 accelerate launch \
@@ -51,7 +53,7 @@ accelerate launch \
 	--pretrained_model_name_or_path stabilityai/stable-video-diffusion-img2vid-xt \
 	--pretrained_text_encoder_model_name_or_path laion/CLIP-ViT-H-14-laion2B-s32B-b79K \
 	--rt1_dataset_root /scratch/gsk6me/WORLDMODELS/datasets/rt-1-data-release \
-	--input_perturbation 0.1 \
+	--input_perturbation $input_perturbation \
   --train_batch_size $train_batch_size \
   --gradient_accumulation_steps 4 \
 	--cache_dir /scratch/gsk6me/huggingface_cache \
