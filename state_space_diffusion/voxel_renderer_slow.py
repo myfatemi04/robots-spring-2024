@@ -40,7 +40,8 @@ class VoxelRenderer:
 
     def point_location_on_images(self, xyz: torch.Tensor):
         x, y, z = self._discretize_point(xyz)
-        return ((z, y), (z, x), (x, y))
+        # in (x, y) order.
+        return ((y.item(), z.item()), (x.item(), z.item()), (y.item(), x.item()))
 
     def convert_2d_to_3d(self, zy: torch.Tensor, zx: torch.Tensor, xy: torch.Tensor):
         d, h = zy.shape

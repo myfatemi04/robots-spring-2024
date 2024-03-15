@@ -1,3 +1,4 @@
+from typing import List
 import numpy as np
 from rlbench.demo import Demo
 
@@ -13,7 +14,7 @@ def _is_stopped(demo, i, obs, stopped_buffer, delta=0.1):
                (not next_is_not_final) and gripper_state_no_change)
     return stopped
 
-def get_keypoint_observation_indexes(demo: Demo, stopping_delta=0.1) -> list:
+def get_keypoint_observation_indexes(demo: Demo, stopping_delta=0.1) -> List[int]:
     episode_keypoints = []
     prev_gripper_open = demo[0].gripper_open
     stopped_buffer = 0
