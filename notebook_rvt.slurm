@@ -14,6 +14,7 @@
 source ~/.bashrc
 
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib
+export QT_QPA_PLATFORM=offscreen
 
 mamba activate /scratch/gsk6me/WORLDMODELS/rvt
 
