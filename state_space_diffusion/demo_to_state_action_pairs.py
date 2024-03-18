@@ -33,9 +33,9 @@ def create_orthographic_labels(demo: Demo, renderer: VoxelRenderer, device="cuda
         color = torch.cat(colors).to(device)
         
         # Create a state-action tuple.
-        # x image: axes are +z and +y.
-        # y image: axes are +z and +x.
-        # z image: axes are +x and +y.
+        # x image: axes are (+y, +z)
+        # y image: axes are (+x, +z)
+        # z image: axes are (+x, +y)
         (x_image, y_image, z_image) = renderer(pcd, color)
         (x_pos, y_pos, z_pos) = renderer.point_location_on_images(torch.tensor(eef_pos, device=device))
 

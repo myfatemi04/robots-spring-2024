@@ -41,7 +41,7 @@ class VoxelRenderer:
     def point_location_on_images(self, xyz: torch.Tensor):
         x, y, z = self._discretize_point(xyz)
         # in (x, y) order.
-        return ((y.item(), z.item()), (x.item(), z.item()), (y.item(), x.item()))
+        return ((y.item(), z.item()), (x.item(), z.item()), (x.item(), y.item()))
 
     def convert_2d_to_3d(self, zy: torch.Tensor, zx: torch.Tensor, xy: torch.Tensor):
         d, h = zy.shape
@@ -82,11 +82,12 @@ class VoxelRenderer:
             y_image = y_image * (1 - mask_3d[:, y, :])[:, :, None] + color_3d[:, y, :]
         y_image = y_image.permute(1, 0, 2)
         
-        z_image = torch.ones((w, h, 3), dtype=color_3d.dtype, device=self.device)
+        z_image = torch.ones((h, w, 3), dtype=color_3d.dtype, device=self.device)
         z_image[:] = self.background_color
         for z in range(d):
             z_image = z_image * (1 - mask_3d[:, :, z])[:, :, None] + color_3d[:, :, z]
-        
+        z_image = z_image.permute(1, 0, 2)
+
         return (x_image, y_image, z_image)
     
     def render_point_cloud(self, point_cloud: torch.Tensor, color: torch.Tensor):

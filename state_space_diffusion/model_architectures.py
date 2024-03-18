@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import transformers
-from transformers.models.clip.modeling_clip import CLIPVisionEmbeddings, CLIPVisionConfig
+from transformers.models.clip.modeling_clip import CLIPVisionEmbeddings, CLIPVisionConfig, CLIPVisionModel
 from positional_encoding import PositionalEncoding
 
 # Naïve approach that will surely be updated.
@@ -194,3 +194,15 @@ class VisualPlanDiffuserV5(torch.nn.Module):
 
         return noisy_state_tokens_gradient_pred
 
+# continuous and predicting direction of nearest planning mode; but using CLIP as a backbone
+class VisualPlanDiffuserV6(torch.nn.Module):
+    def __init__(self, clip: CLIPVisionModel):
+        super().__init__()
+
+        d_model = clip.config.hidden_size
+        
+        self.tfmr = clip
+        self.noise_decoder = nn.Linear(d_model, 2)
+
+    def forward(self, pixel_values: torch.FloatTensor) -> torch.Tensor:
+        return self.noise_decoder(self.tfmr(pixel_values).last_hidden_state[:, 1:, :])
