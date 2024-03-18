@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # https://www.rc.virginia.edu/userinfo/rivanna/basepod/
-#SBATCH --time=2:00:00
+#SBATCH --time=6:00:00
 #SBATCH --job-name=A100:1
 #SBATCH --mem=64G
 #SBATCH --gres=gpu:a100:1

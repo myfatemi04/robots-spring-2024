@@ -154,8 +154,8 @@ class VisualPlanDiffuserV4(torch.nn.Module):
         # Denoising.
         self.timestep_encoding = PositionalEncoding(n_position_dims=1, n_encoding_dims=d_model)
         self.transformer_encoder = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model, nhead=8, dim_feedforward=128, batch_first=True),
-            num_layers=6,
+            nn.TransformerEncoderLayer(d_model, nhead=4, batch_first=True),
+            num_layers=4,
         )
         self.noise_decoder = nn.Linear(d_model, 2)
 
