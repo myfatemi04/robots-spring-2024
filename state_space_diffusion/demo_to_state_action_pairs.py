@@ -63,7 +63,7 @@ def create_torch_dataset(demos, device):
         for (images_, positions_) in create_orthographic_labels(demo, renderer, device=device):
             # `images_` and `positions_` are sorted into images along x, y, and z axes, respectively.
             # Flip the y axis.
-            images.extend([image.permute(2, 0, 1).flip(1) for image in images_])
+            images.extend([image.permute(2, 0, 1) for image in images_])
             positions.extend([torch.tensor(pos, device=device) for pos in positions_])
 
     images = torch.stack(images)

@@ -1,11 +1,13 @@
 ### Goal: Make something that can effectively denoise towards the point (2/3, 2/3).
 
+from functools import partial
+import matplotlib.pyplot as plt
 import torch
+import torch.utils.data
 import tqdm
 import transformers
+from get_data import get_data
 from model_architectures import VisualPlanDiffuserV5
-import matplotlib.pyplot as plt
-from noamopt import NoamOpt
 
 
 def get_diffusion_schedule(fix_alpha_scaling=True, device="cuda"):
@@ -42,11 +44,12 @@ device = torch.device('cuda')
 cfg = transformers.CLIPVisionConfig.from_pretrained("openai/clip-vit-base-patch16")
 model = VisualPlanDiffuserV5(768, cfg).to(device)
 
-# for name, param in model.named_parameters():
-#     # check if MLP
-#     if "linear1.weight" in name or "linear2.weight" in name:
-#         param.data.fill_(0)
-#         param.data.fill_(0)
+clip_processor = transformers.CLIPProcessor.from_pretrained("openai/clip-vit-base-patch16") # type: ignore
+
+for name, param in model.named_parameters():
+    # check if MLP
+    if "linear" in name and ('.weight' in name or '.bias' in name):
+        param.data.fill_(0)
 
 # model = torch.nn.Parameter(torch.zeros((14, 14, 2), device=device))
 # optim = torch.optim.Adam([model], lr=1e-3)
@@ -54,50 +57,72 @@ model = VisualPlanDiffuserV5(768, cfg).to(device)
 optim = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=1e-5)
 # optim = NoamOpt(768, 1, 200, torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=0, betas=(0.9, 0.98), eps=1e-9))
 
+dataset = get_data()
+dataloader = torch.utils.data.DataLoader(dataset, batch_size=16, shuffle=True)
+
+image_scaling = 112
+center = 112
+grid_size = 14
+
 betas, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod = get_diffusion_schedule()
 
-for epoch in (pbar := tqdm.tqdm(range(1000))):
-    pixel_values = torch.zeros((1, 3, 224, 224), device=device)
+NI = partial(noise_coordinates_to_image_coordinates, image_scaling=image_scaling, center=center)
+NP = lambda x: x.detach().cpu().numpy()
 
-    position = torch.tensor([1/3, 1/3]).unsqueeze(0).to(device)
-    grid_size = 14
-    pixel_locations = torch.zeros((grid_size, grid_size, 2), device=device)
-    pixel_locations[..., 0] = torch.arange(grid_size, device=device).view(1, grid_size).expand(grid_size, grid_size) / grid_size
-    pixel_locations[..., 1] = torch.arange(grid_size, device=device).view(grid_size, 1).expand(grid_size, grid_size) / grid_size
-    true_direction = (pixel_locations - position)
+def scaled_arrows(pixel_scaled_positions, pred_direction, true_direction):
+    plt.imshow(pixel_values[0].detach().cpu().numpy().transpose(1, 2, 0), origin="lower")
 
-    image_scaling = 112
-    center = 112
-    # pred_direction = model.view(-1, grid_size, grid_size, 2)
-    pred_direction = model(pixel_values).view(-1, grid_size, grid_size, 2)
+    pred_arrow_ends = NI(pixel_scaled_positions)
+    true_arrow_ends = NI(pixel_scaled_positions)
 
-    loss = (pred_direction - true_direction).pow(2).mean()
-    optim.zero_grad()
-    loss.backward()
-    optim.step()
+    plt.quiver(
+        NP(pred_arrow_ends[:, 0]),
+        NP(pred_arrow_ends[:, 1]),
+        -NP(pred_direction[:, 0]) * image_scaling,
+        -NP(pred_direction[:, 1]) * image_scaling,
+        color='red',
+        label='Predicted'
+    )
+    plt.quiver(
+        NP(true_arrow_ends[:, 0]),
+        NP(true_arrow_ends[:, 1]),
+        -NP(true_direction[:, 0]) * image_scaling,
+        -NP(true_direction[:, 1]) * image_scaling,
+        color='blue',
+        label='True'
+    )
+
+for epoch in range(100):
+    for (image, position) in (pbar := tqdm.tqdm(dataloader)):
+        pixel_values = clip_processor(images=image, return_tensors="pt", do_rescale=False).to(device=device).pixel_values
+
+        scaled_position = image_coordinates_to_noise_coordinates(position, image_scaling, center)
+        pixel_scaled_positions = torch.zeros((grid_size, grid_size, 2), device=device)
+        pixel_scaled_positions[..., 0] = (0.5 + torch.arange(grid_size, device=device).view(1, grid_size).expand(grid_size, grid_size)) * 2 / grid_size - 1
+        pixel_scaled_positions[..., 1] = (0.5 + torch.arange(grid_size, device=device).view(grid_size, 1).expand(grid_size, grid_size)) * 2 / grid_size - 1
+        pixel_scaled_positions = pixel_scaled_positions.unsqueeze(0).expand(position.shape[0], -1, -1, -1)
+
+        true_direction = (pixel_scaled_positions - scaled_position.view(-1, 1, 1, 2))
+
+        # pred_direction = model.view(-1, grid_size, grid_size, 2)
+        pred_direction = model(pixel_values).view(-1, grid_size, grid_size, 2)
+
+        loss = (pred_direction - true_direction).pow(2).mean()
+        optim.zero_grad()
+        loss.backward()
+        optim.step()
+        
+        pbar.set_postfix({"loss": loss.item()})
 
     # Visualize the vector field
-    if (epoch + 1) % 100 == 0:
-        print(pred_direction.mean(dim=(0, 1, 2)), true_direction.mean(dim=(0, 1)))
+    if (epoch + 1) % 10 == 0:
         plt.clf()
         plt.title("Score Function")
-        plt.quiver(
-            pixel_locations[..., 0].cpu().numpy(),
-            pixel_locations[..., 1].cpu().numpy(),
-            pred_direction[0, ..., 0].detach().cpu().numpy(),
-            pred_direction[0, ..., 1].detach().cpu().numpy(),
-            color='red',
-            label='Predicted'
-        )
-        plt.quiver(
-            pixel_locations[..., 0].cpu().numpy(),
-            pixel_locations[..., 1].cpu().numpy(),
-            true_direction[..., 0].cpu().numpy(),
-            true_direction[..., 1].cpu().numpy(),
-            color='blue',
-            label='True'
+        # Project from 2D memory layout to serial layout
+        scaled_arrows(
+            pixel_scaled_positions[0].view(-1, 2),
+            pred_direction[0].view(-1, 2),
+            true_direction[0].view(-1, 2),
         )
         plt.legend()
         plt.savefig(f"diffusion_{epoch}.png")
-    
-    pbar.set_postfix({"loss": loss.item()})
