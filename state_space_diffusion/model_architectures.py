@@ -171,6 +171,26 @@ class VisualPlanDiffuserV4(torch.nn.Module):
 
         return noisy_state_tokens_noise_pred
 
+# continuous and predicting direction of nearest planning mode
+class VisualPlanDiffuserV5(torch.nn.Module):
+    def __init__(self, d_model, vision_config: CLIPVisionConfig):
+        super().__init__()
 
+        # Noisy state gets input as an image.
+        self.noisy_state_embeddings = CLIPVisionEmbeddings(vision_config)
 
+        # Denoising.
+        self.timestep_encoding = PositionalEncoding(n_position_dims=1, n_encoding_dims=d_model)
+        self.transformer_encoder = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(d_model, nhead=4, batch_first=True),
+            num_layers=4,
+        )
+        self.noise_decoder = nn.Linear(d_model, 2)
+
+    def forward(self, pixel_values: torch.FloatTensor) -> torch.Tensor:
+        noisy_state_tokens = self.noisy_state_embeddings(pixel_values)
+        noisy_state_tokens_encoded = self.transformer_encoder(noisy_state_tokens)
+        noisy_state_tokens_gradient_pred = self.noise_decoder(noisy_state_tokens_encoded[:, 1:, :])
+
+        return noisy_state_tokens_gradient_pred
 
