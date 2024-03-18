@@ -2,6 +2,7 @@ from keypoint_generation import get_keypoint_observation_indexes
 from rlbench.demo import Demo
 from voxel_renderer_slow import VoxelRenderer
 import torch
+import torch.utils.data
 
 cameras = [
     'front',
@@ -43,3 +44,32 @@ def create_orthographic_labels(demo: Demo, renderer: VoxelRenderer, device="cuda
         previous_pos = keypoint
 
     return tuples
+
+def create_torch_dataset(demos, device):
+    SCENE_BOUNDS = [
+        -0.3, -0.5,
+        0.6, 0.7,
+        0.5, 1.6,
+    ]
+    VOXEL_IMAGE_SIZE = 224
+    BACKGROUND_COLOR = torch.tensor([0, 0, 0], device=device)
+    # Use this to generate the input images.
+    renderer = VoxelRenderer(SCENE_BOUNDS, VOXEL_IMAGE_SIZE, BACKGROUND_COLOR, device=device)
+
+    images = []
+    positions = []
+
+    for demo in demos:
+        for (images_, positions_) in create_orthographic_labels(demo, renderer, device=device):
+            # `images_` and `positions_` are sorted into images along x, y, and z axes, respectively.
+            # Flip the y axis.
+            images.extend([image.permute(2, 0, 1).flip(1) for image in images_])
+            positions.extend([torch.tensor(pos, device=device) for pos in positions_])
+
+    images = torch.stack(images)
+    positions = torch.stack(positions)
+
+    # Create a dataset of images -> 2D positions.
+    dataset = torch.utils.data.TensorDataset(images, positions)
+
+    return dataset
