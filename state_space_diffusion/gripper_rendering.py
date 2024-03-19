@@ -17,10 +17,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pyrender
 import trimesh
-# Note: We should be able to easily get rid of this dependency. It's just for convenience.
-# So far, pytorch3d is ONLY used for the `look_at_view_transform` function.
-from pytorch3d.renderer import look_at_view_transform
-import torch
 
 """
 Requires:
@@ -77,16 +73,8 @@ def get_camera(camera_id: str, origin=(0, 0, 0)):
     oc = pyrender.OrthographicCamera(xmag=1.0, ymag=1.0)
 
     # Create vector pointing to origin.
-    # distance = 1
-
+    # See https://learnopengl.com/Getting-started/Camera.
     if camera_id == 'xy':
-        # R = np.array([
-        #     [1, 0, 0],
-        #     [0, 1, 0],
-        #     [0, 0, -1],
-        # ]).T
-        # T = np.array([0, 0, -1]) + origin
-
         backward = np.array([0, 0, 1])
         right = np.array([1, 0, 0])
         up = np.cross(backward, right)
@@ -98,14 +86,7 @@ def get_camera(camera_id: str, origin=(0, 0, 0)):
         ]).T
         T = (backward + origin)
     elif camera_id == 'xz':
-        # R = np.array([
-        #     [1, 0, 0],
-        #     [0, 0, 1],
-        #     [0, -1, 0],
-        # ]).T
-        # T = np.array([0, -1, 0]) + origin
-
-        backward = np.array([0, -1, 0])
+        backward = np.array([0, 1, 0])
         right = np.array([1, 0, 0])
         up = np.cross(backward, right)
         
@@ -126,31 +107,9 @@ def get_camera(camera_id: str, origin=(0, 0, 0)):
             backward,
         ]).T
         T = (backward + origin)
-
-        # print(R)
-        # print(T)
-        # print(origin)
-
     matrix = np.eye(4)
     matrix[:3, :3] = R
     matrix[:3, 3] = T
-
-    # dist = 1
-    # elev, azim, up = camera_tfms[camera_id] # type: ignore
-    # elev = torch.tensor([elev])
-    # azim = torch.tensor([azim])
-    # at = origin # (0, 0, 0)
-
-    # # Must be batched for some reason.
-    # r, t = look_at_view_transform(dist=[dist], elev=elev, azim=azim, up=[up], at=[at])
-    # r = r[0]
-    # t = t[0]
-
-    # matrix = np.eye(4)
-    # matrix[:3, :3] = r.T
-    # matrix[:3, 3] = r.T @ t
-
-    # print(r, r.T @ t, t)
 
     return oc, matrix
 
@@ -203,9 +162,10 @@ obs = demo[0]
 gripper_matrix = obs.gripper_matrix
 gripper_width = 0.08 * obs.gripper_open
 
-origin = (0.2, 0.0, 1.0)
-gripper_t = list(gripper_matrix[:3, 3])
+mins, maxs = np.array(SCENE_BOUNDS).reshape(2, 3)
+origin = (mins + maxs) / 2
+scales = maxs - mins
 
-print(gripper_t)
+gripper_t = list(gripper_matrix[:3, 3])
 
 render_virtual_plan(gripper_matrix, origin, gripper_width)
