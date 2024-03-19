@@ -104,17 +104,17 @@ def train():
 
     betas, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod = get_diffusion_schedule()
 
-    for epoch in range(50):
+    for epoch in range(20):
         for (image, position) in (pbar := tqdm.tqdm(dataloader)):
             pixel_values = clip_processor(images=image, return_tensors="pt", do_rescale=False).to(device=device).pixel_values # type: ignore
 
-            scaled_position = image_coordinates_to_noise_coordinates(position, image_scaling, center)
+            scaled_target_position = image_coordinates_to_noise_coordinates(position, image_scaling, center)
             pixel_scaled_positions = torch.zeros((grid_size, grid_size, 2), device=device)
             pixel_scaled_positions[..., 0] = (0.5 + torch.arange(grid_size, device=device).view(grid_size, 1).expand(grid_size, grid_size)) * 2 / grid_size - 1
             pixel_scaled_positions[..., 1] = (0.5 + torch.arange(grid_size, device=device).view(1, grid_size).expand(grid_size, grid_size)) * 2 / grid_size - 1
             pixel_scaled_positions = pixel_scaled_positions.unsqueeze(0).expand(position.shape[0], -1, -1, -1)
 
-            true_direction = (pixel_scaled_positions - scaled_position.view(-1, 1, 1, 2))
+            true_direction = (scaled_target_position.view(-1, 1, 1, 2) - pixel_scaled_positions)
 
             # (batch, token_y, token_x, 2) -> (batch, token_x, token_y, 2)
             pred_direction = model(pixel_values).view(-1, grid_size, grid_size, 2).permute(0, 2, 1, 3).contiguous()
@@ -192,8 +192,7 @@ def sample(model, renderer, xy_image, yz_image, xz_image, start_point, device="c
     # langevin dynamics
     # first, calculate score function. we permute to make axes [batch, x, y, 2]
     with torch.no_grad():
-        # !!!! Note this sign !!!!
-        score_xy_map, score_yz_map, score_xz_map = -model(pixel_values).view(-1, 14, 14, 2).permute(0, 2, 1, 3).contiguous()
+        score_xy_map, score_yz_map, score_xz_map = model(pixel_values).view(-1, 14, 14, 2).permute(0, 2, 1, 3).contiguous()
     pos = torch.tensor(start_point, device=device)
 
     history = [pos]
@@ -217,28 +216,27 @@ def sample(model, renderer, xy_image, yz_image, xz_image, start_point, device="c
         # yz, xz, yx are in pixel coordinates, while the nn was trained to predict noise in [-1, 1]^2 coordinates
         yz_loc, xz_loc, xy_loc = renderer.point_location_on_images(pos)
         # print(xy_loc, yz_loc, xz_loc)
-        score_xy, xy_biind = bilinear_interpolation(score_xy_map, (T(xy_loc)), grid_square_size, max_grid_square_inclusive)
+        score_xy, _ = bilinear_interpolation(score_xy_map, (T(xy_loc)), grid_square_size, max_grid_square_inclusive)
         score_yz, _ = bilinear_interpolation(score_yz_map, (T(yz_loc)), grid_square_size, max_grid_square_inclusive)
         score_xz, _ = bilinear_interpolation(score_xz_map, (T(xz_loc)), grid_square_size, max_grid_square_inclusive)
 
-        print(xy_loc, score_xy, xy_biind[0].item(), xy_biind[1].item(), score_xy_map[xy_biind[0], xy_biind[1]])
+        # print(xy_loc, score_xy, xy_biind[0].item(), xy_biind[1].item(), score_xy_map[xy_biind[0], xy_biind[1]])
 
         history_yz.append(T(yz_loc))
         history_xz.append(T(xz_loc))
         history_xy.append(T(xy_loc))
 
+        # score = torch.tensor([
+        #     score_xy[0],
+        #     score_xy[1],
+        #     0,
+        # ], device=device)
         score = torch.tensor([
-            score_xy[0],
-            score_xy[1],
-            0,
-        ], device=device)
-        # score = -torch.tensor([
-        #     score_xy[0] + score_xz[0],
-        #     score_xy[1] + score_yz[0],
-        #     score_xz[1] + score_yz[1],
-        # ], device=device) / 2
-        # adjusted_norm = torch.sigmoid(torch.norm(score))
-        score = score / torch.norm(score)
+            score_xy[0] + score_xz[0],
+            score_xy[1] + score_yz[0],
+            score_xz[1] + score_yz[1],
+        ], device=device) / 2
+        # score = score / torch.norm(score)
 
         # Take a step in the direction of the score
         step_size = step_sizes[step]
@@ -319,7 +317,7 @@ def evaluate():
         plt.title(name + " View")
         plt.imshow(tensor2numpy(image), origin="lower")
         plt.scatter(
-            [point[0].item() for point in history_xy],
+            [point[0].item() for point in history],
             [point[1].item() for point in history],
             label="Sampling trajectory",
             c=np.arange(len(history)),
@@ -336,5 +334,5 @@ def evaluate():
     plt.tight_layout()
     plt.savefig("2d_multiview_sampling_trajectory.png", dpi=512)
 
-train()
+# train()
 evaluate()
