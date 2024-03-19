@@ -110,8 +110,8 @@ def train():
 
             scaled_position = image_coordinates_to_noise_coordinates(position, image_scaling, center)
             pixel_scaled_positions = torch.zeros((grid_size, grid_size, 2), device=device)
-            pixel_scaled_positions[..., 0] = (0.5 + torch.arange(grid_size, device=device).view(1, grid_size).expand(grid_size, grid_size)) * 2 / grid_size - 1
-            pixel_scaled_positions[..., 1] = (0.5 + torch.arange(grid_size, device=device).view(grid_size, 1).expand(grid_size, grid_size)) * 2 / grid_size - 1
+            pixel_scaled_positions[..., 0] = (0.5 + torch.arange(grid_size, device=device).view(grid_size, 1).expand(grid_size, grid_size)) * 2 / grid_size - 1
+            pixel_scaled_positions[..., 1] = (0.5 + torch.arange(grid_size, device=device).view(1, grid_size).expand(grid_size, grid_size)) * 2 / grid_size - 1
             pixel_scaled_positions = pixel_scaled_positions.unsqueeze(0).expand(position.shape[0], -1, -1, -1)
 
             true_direction = (pixel_scaled_positions - scaled_position.view(-1, 1, 1, 2))
@@ -146,7 +146,7 @@ def bilinear_interpolation(features: torch.Tensor, xy: torch.Tensor, grid_square
     x = xy[..., 0]
     y = xy[..., 1]
 
-    print("xy:", xy)
+    # print("xy:", xy)
     
     lower_ind = torch.floor((xy - (grid_square_size / 2)) / grid_square_size).to(torch.long)
     lower_ind[lower_ind < 0] = 0
@@ -155,27 +155,27 @@ def bilinear_interpolation(features: torch.Tensor, xy: torch.Tensor, grid_square
     lower_y_ind = lower_ind[..., 1]
     upper_x_ind = lower_x_ind + 1
     upper_y_ind = lower_y_ind + 1
-    lower_x = lower_x_ind * grid_square_size + 0.5
-    lower_y = lower_y_ind * grid_square_size + 0.5
-    upper_x = upper_x_ind * grid_square_size + 0.5
-    upper_y = upper_y_ind * grid_square_size + 0.5
+    lower_x = (lower_x_ind + 0.5) * grid_square_size
+    lower_y = (lower_y_ind + 0.5) * grid_square_size
+    upper_x = (upper_x_ind + 0.5) * grid_square_size
+    upper_y = (upper_y_ind + 0.5) * grid_square_size
 
-    denom = (upper_x - lower_x) * (upper_y - lower_y)
-
-    print(upper_x.shape, x.shape, upper_y.shape, y.shape, features.shape)
-    print("coef 1:", (upper_x - x) * (upper_y - y) / denom)
-    print("coef 2:", (x - lower_x) * (upper_y - y) / denom)
-    print("coef 3:", (upper_x - x) * (y - lower_y) / denom)
-    print("coef 4:", (x - lower_x) * (y - lower_y) / denom)
+    # denom = (upper_x - lower_x) * (upper_y - lower_y)
+    # print(upper_x.shape, x.shape, upper_y.shape, y.shape, features.shape)
+    # print("coef 1:", (upper_x - x) * (upper_y - y) / denom)
+    # print("coef 2:", (x - lower_x) * (upper_y - y) / denom)
+    # print("coef 3:", (upper_x - x) * (y - lower_y) / denom)
+    # print("coef 4:", (x - lower_x) * (y - lower_y) / denom)
     
-    interpolated_value = 1/((upper_x - lower_x) * (upper_y - lower_y)) * (
+    # interpolated_value = 1/((upper_x - lower_x) * (upper_y - lower_y)) * (
+    interpolated_value = 1/(grid_square_size ** 2) * (
         features[lower_x_ind, lower_y_ind] * (upper_x - x) * (upper_y - y) +
         features[upper_x_ind, lower_y_ind] * (x - lower_x) * (upper_y - y) +
         features[lower_x_ind, upper_y_ind] * (upper_x - x) * (y - lower_y) +
         features[upper_x_ind, upper_y_ind] * (x - lower_x) * (y - lower_y)
     )
 
-    return interpolated_value
+    return interpolated_value, (lower_x_ind, lower_y_ind)
 
 # Let's try sampling from the model. Given multiple views, let's try to use this score function + Langevin dynamics
 # to sample a 3D position. Ideally, because we're using multiple views, we'll be able to extract 3D positions using
@@ -192,7 +192,8 @@ def sample(model, renderer, xy_image, yz_image, xz_image, start_point, device="c
     # langevin dynamics
     # first, calculate score function. we permute to make axes [batch, x, y, 2]
     with torch.no_grad():
-        score_xy_map, score_yz_map, score_xz_map = model(pixel_values).view(-1, 14, 14, 2).permute(0, 2, 1, 3).contiguous()
+        # !!!! Note this sign !!!!
+        score_xy_map, score_yz_map, score_xz_map = -model(pixel_values).view(-1, 14, 14, 2).permute(0, 2, 1, 3).contiguous()
     pos = torch.tensor(start_point, device=device)
 
     history = [pos]
@@ -204,21 +205,23 @@ def sample(model, renderer, xy_image, yz_image, xz_image, start_point, device="c
 
     xmin, ymin, zmin, xmax, ymax, zmax = SCENE_BOUNDS
 
-    n_steps = 60
+    n_steps = 10
     step_sizes = torch.linspace(0.2, 0.1, n_steps, device=device)
     grid_size = 14
     grid_square_size = 16
     for step in range(n_steps):
         print("Running sampling step", step)
         # calculate score via bilinear interpolation
-        # coordinate order: yz, xz, yx
         max_grid_square_inclusive = grid_size - 1
 
         # yz, xz, yx are in pixel coordinates, while the nn was trained to predict noise in [-1, 1]^2 coordinates
         yz_loc, xz_loc, xy_loc = renderer.point_location_on_images(pos)
-        score_xy = bilinear_interpolation(score_xy_map, (T(xy_loc)), grid_square_size, max_grid_square_inclusive)
-        score_yz = bilinear_interpolation(score_yz_map, (T(yz_loc)), grid_square_size, max_grid_square_inclusive)
-        score_xz = bilinear_interpolation(score_xz_map, (T(xz_loc)), grid_square_size, max_grid_square_inclusive)
+        # print(xy_loc, yz_loc, xz_loc)
+        score_xy, xy_biind = bilinear_interpolation(score_xy_map, (T(xy_loc)), grid_square_size, max_grid_square_inclusive)
+        score_yz, _ = bilinear_interpolation(score_yz_map, (T(yz_loc)), grid_square_size, max_grid_square_inclusive)
+        score_xz, _ = bilinear_interpolation(score_xz_map, (T(xz_loc)), grid_square_size, max_grid_square_inclusive)
+
+        print(xy_loc, score_xy, xy_biind[0].item(), xy_biind[1].item(), score_xy_map[xy_biind[0], xy_biind[1]])
 
         history_yz.append(T(yz_loc))
         history_xz.append(T(xz_loc))
@@ -252,7 +255,7 @@ def sample(model, renderer, xy_image, yz_image, xz_image, start_point, device="c
 def evaluate():
     device = torch.device("cuda")
     clip = transformers.CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch16")
-    model = VisualPlanDiffuserV6(clip).to(device)
+    model = VisualPlanDiffuserV6(clip).to(device) # type: ignore
     model.load_state_dict(torch.load("diffusion_model.pt"))
 
     renderer = VoxelRenderer(SCENE_BOUNDS, 224, torch.tensor([0, 0, 0], device=device), device=device)
@@ -301,16 +304,16 @@ def evaluate():
         position = torch.tensor(pos, device=device)
         scaled_position = image_coordinates_to_noise_coordinates(position, image_scaling, center)
         pixel_scaled_positions = torch.zeros((grid_size, grid_size, 2), device=device)
-        pixel_scaled_positions[..., 0] = (0.5 + torch.arange(grid_size, device=device).view(1, grid_size).expand(grid_size, grid_size)) * 2 / grid_size - 1
-        pixel_scaled_positions[..., 1] = (0.5 + torch.arange(grid_size, device=device).view(grid_size, 1).expand(grid_size, grid_size)) * 2 / grid_size - 1
+        pixel_scaled_positions[..., 0] = (0.5 + torch.arange(grid_size, device=device).view(grid_size, 1).expand(grid_size, grid_size)) * 2 / grid_size - 1
+        pixel_scaled_positions[..., 1] = (0.5 + torch.arange(grid_size, device=device).view(1, grid_size).expand(grid_size, grid_size)) * 2 / grid_size - 1
         pixel_scaled_positions = pixel_scaled_positions.unsqueeze(0).expand(position.shape[0], -1, -1, -1)
         true_direction = (pixel_scaled_positions - scaled_position.view(-1, 1, 1, 2))
 
-        print(
-            # [batch, x, y]
-            bilinear_interpolation(score, pixel_scaled_positions[0, 0, 0], 16, 14 - 1),
-            score[0, 0],
-        )
+        # print(
+        #     # [batch, x, y]
+        #     bilinear_interpolation(score, torch.tensor([8, 8], device='cuda'), 16, 14 - 1),
+        #     score[0, 0],
+        # )
 
         plt.subplot(1, 3, i + 1)
         plt.title(name + " View")
@@ -326,12 +329,12 @@ def evaluate():
         scaled_arrows(
             image.permute(2, 0, 1), # permute so it can get unpermuted lmfao
             pixel_scaled_positions[0].view(-1, 2),
-            score.view(-1, 2) / score.norm(dim=-1).view(-1, 1) * 0.1,
+            -score.view(-1, 2) / score.norm(dim=-1).view(-1, 1) * 0.1,
             true_direction[0].view(-1, 2),
         )
 
     plt.tight_layout()
     plt.savefig("2d_multiview_sampling_trajectory.png", dpi=512)
 
-# train()
+train()
 evaluate()
