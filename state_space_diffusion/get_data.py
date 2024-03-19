@@ -6,7 +6,7 @@ import torch.utils.data
 from demo_to_state_action_pairs import create_torch_dataset
 
 
-def get_demos(n_demos: int = 8):
+def generate_demos(n_demos: int = 8):
     from rlbench.action_modes.action_mode import MoveArmThenGripper
     from rlbench.action_modes.arm_action_modes import JointVelocity
     from rlbench.action_modes.gripper_action_modes import Discrete
@@ -32,15 +32,18 @@ def get_demos(n_demos: int = 8):
 
     return demos
 
-def get_data():
+def get_demos():
     if not os.path.exists("demos.pkl"):
         with open("demos.pkl", "wb") as f:
-            pickle.dump(get_demos(8), f)
+            pickle.dump(generate_demos(8), f)
     else:
         with open("demos.pkl", "rb") as f:
             demos = pickle.load(f)
 
+    return demos
+
+def get_data():
     device = torch.device('cuda')
-    dataset = create_torch_dataset(demos, device)
+    dataset = create_torch_dataset(get_demos(), device)
 
     return dataset

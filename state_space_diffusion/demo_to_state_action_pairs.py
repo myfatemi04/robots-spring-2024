@@ -12,7 +12,7 @@ cameras = [
     'overhead',
 ]
 
-def create_orthographic_labels(demo: Demo, renderer: VoxelRenderer, device="cuda"):
+def create_orthographic_labels(demo: Demo, renderer: VoxelRenderer, device="cuda", include_eef_pos=False):
     keypoints = get_keypoint_observation_indexes(demo)
 
 
@@ -39,7 +39,11 @@ def create_orthographic_labels(demo: Demo, renderer: VoxelRenderer, device="cuda
         (x_image, y_image, z_image) = renderer(pcd, color)
         (x_pos, y_pos, z_pos) = renderer.point_location_on_images(torch.tensor(eef_pos, device=device))
 
-        tuples.append(((x_image, y_image, z_image), (x_pos, y_pos, z_pos)))
+        if include_eef_pos:
+            tuples.append(((x_image, y_image, z_image), (x_pos, y_pos, z_pos), eef_pos))
+        else:
+            # for compatibility
+            tuples.append(((x_image, y_image, z_image), (x_pos, y_pos, z_pos)))
         
         previous_pos = keypoint
 
