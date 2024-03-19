@@ -9,6 +9,10 @@ Return:
  * A mesh, with the origin being at the midpoint between the two gripper fingers, which can then be rotated
 """
 
+import os
+
+os.environ['PYOPENGL_PLATFORM'] = 'egl'
+
 import trimesh
 import pyrender
 import numpy as np
@@ -20,7 +24,7 @@ Requires:
  - pycollada
 """
 
-FRANKA_MESH_ROOT = "franka_ros/franka_description/meshes/visual"
+FRANKA_MESH_ROOT = "../../franka_ros/franka_description/meshes/visual"
 HAND_DAE_PATH = f"{FRANKA_MESH_ROOT}/hand.dae"
 FINGER_DAE_PATH = f"{FRANKA_MESH_ROOT}/finger.dae"
 
@@ -52,4 +56,22 @@ finger_matrix_2 = np.array([
 finger_1_node = scene.add(finger_mesh, pose=finger_matrix_1, parent_node=hand_node)
 finger_2_node = scene.add(finger_mesh, pose=finger_matrix_2, parent_node=hand_node)
 
-pyrender.Viewer(scene, use_raymond_lighting=True)
+live = False
+
+if live:
+    pyrender.Viewer(scene, use_raymond_lighting=True)
+else:
+    # Save to file via offscreen renderer.
+    r = pyrender.OffscreenRenderer(640, 480)
+    # Oh, cool! We get depth data.
+    color, depth = r.render(scene) # type: ignore
+
+    import matplotlib.pyplot as plt
+
+    plt.subplot(1, 2, 1)
+    plt.title("Color")
+    plt.imshow(color)
+    plt.subplot(1, 2, 2)
+    plt.title("Depth")
+    plt.imshow(depth)
+    plt.savefig("gripper_rendering.png")
