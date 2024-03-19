@@ -17,6 +17,7 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib
 mamba activate py310
 
 export QT_QPA_PLATFORM=offscreen
+export PYOPENGL_PLATFORM=egl
 export JUPYTER_PORT=2596
 LOCAL_PORT=2596
 

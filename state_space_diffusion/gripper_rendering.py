@@ -31,31 +31,39 @@ FINGER_DAE_PATH = f"{FRANKA_MESH_ROOT}/finger.dae"
 hand_trimesh = trimesh.load_mesh(HAND_DAE_PATH)
 hand_mesh = pyrender.Mesh.from_trimesh([*hand_trimesh.geometry.values()])
 
-scene = pyrender.Scene()
-hand_node = scene.add(hand_mesh)
-
 # Add the fingers
 finger_trimesh = trimesh.load_mesh(FINGER_DAE_PATH)
 finger_mesh = pyrender.Mesh.from_trimesh([*finger_trimesh.geometry.values()])
 
-# Translate by 0.0584 +Z relative to hand.
-# This is based on franka_description/robots/common/franka_hand.xacro
-finger_z = 0.0584
-gripper_width = 0.08
-finger_matrix_1 = np.array([
-    [-1, 0, 0, 0],
-    [0, -1, 0, -gripper_width / 2],
-    [0, 0, 1, finger_z],
-    [0, 0, 0, 1]
-])
-finger_matrix_2 = np.array([
-    [1, 0, 0, 0],
-    [0, 1, 0, +gripper_width / 2],
-    [0, 0, 1, finger_z],
-    [0, 0, 0, 1]
-])
-finger_1_node = scene.add(finger_mesh, pose=finger_matrix_1, parent_node=hand_node)
-finger_2_node = scene.add(finger_mesh, pose=finger_matrix_2, parent_node=hand_node)
+def create_hand_node(gripper_width: float = 0.08):
+    """
+    gripper_width can be from 0 to 0.08.
+    """
+    # Translate by 0.0584 +Z relative to hand.
+    # This is based on franka_description/robots/common/franka_hand.xacro
+    finger_z = 0.0584
+    finger_matrix_1_relative_to_hand = np.array([
+        [-1, 0, 0, 0],
+        [0, -1, 0, -gripper_width / 2],
+        [0, 0, 1, finger_z],
+        [0, 0, 0, 1]
+    ])
+    finger_matrix_2_relative_to_hand = np.array([
+        [1, 0, 0, 0],
+        [0, 1, 0, +gripper_width / 2],
+        [0, 0, 1, finger_z],
+        [0, 0, 0, 1]
+    ])
+    finger_1_node = pyrender.Node(mesh=finger_mesh, matrix=finger_matrix_1_relative_to_hand) # , parent_node=hand_node)
+    finger_2_node = pyrender.Node(mesh=finger_mesh, matrix=finger_matrix_2_relative_to_hand) # , parent_node=hand_node)
+
+    hand_node = pyrender.Node(mesh=hand_mesh, children=[finger_1_node, finger_2_node])
+
+    return hand_node
+
+# Create the scene.
+scene = pyrender.Scene()
+scene.add_node(create_hand_node(0.08))
 
 # Add ambient light ("Directional Light").
 dl = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0], intensity=100.0)
