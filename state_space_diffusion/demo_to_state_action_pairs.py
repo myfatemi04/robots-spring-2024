@@ -12,7 +12,7 @@ cameras = [
     'overhead',
 ]
 
-def create_orthographic_labels(demo: Demo, renderer: VoxelRenderer, device="cuda", include_eef_pos=False):
+def create_orthographic_labels(demo: Demo, renderer: VoxelRenderer, device="cuda", include_extra_metadata=False):
     keypoints = get_keypoint_observation_indexes(demo)
 
 
@@ -24,11 +24,12 @@ def create_orthographic_labels(demo: Demo, renderer: VoxelRenderer, device="cuda
 
     for keypoint in keypoints:
         # We are predicting KEYPOINT based on our observation at PREVIOUS_POS.
-        obs = demo[previous_pos]
-        eef_pos = demo[keypoint].gripper_pose[:3]
+        start_obs = demo[previous_pos]
+        target_obs = demo[keypoint]
+        eef_pos = target_obs.gripper_pose[:3]
 
-        pcds = [torch.tensor(getattr(obs, camera + '_point_cloud').reshape(-1, 3)) for camera in cameras]
-        colors = [torch.tensor(getattr(obs, camera + '_rgb').reshape(-1, 3) / 255.0) for camera in cameras]
+        pcds = [torch.tensor(getattr(start_obs, camera + '_point_cloud').reshape(-1, 3)) for camera in cameras]
+        colors = [torch.tensor(getattr(start_obs, camera + '_rgb').reshape(-1, 3) / 255.0) for camera in cameras]
         pcd = torch.cat(pcds).to(device)
         color = torch.cat(colors).to(device)
         
@@ -39,8 +40,8 @@ def create_orthographic_labels(demo: Demo, renderer: VoxelRenderer, device="cuda
         (x_image, y_image, z_image) = renderer(pcd, color)
         (x_pos, y_pos, z_pos) = renderer.point_location_on_images(torch.tensor(eef_pos, device=device))
 
-        if include_eef_pos:
-            tuples.append(((x_image, y_image, z_image), (x_pos, y_pos, z_pos), eef_pos))
+        if include_extra_metadata:
+            tuples.append(((x_image, y_image, z_image), (x_pos, y_pos, z_pos), (start_obs, target_obs)))
         else:
             # for compatibility
             tuples.append(((x_image, y_image, z_image), (x_pos, y_pos, z_pos)))

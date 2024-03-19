@@ -259,10 +259,10 @@ def evaluate():
     renderer = VoxelRenderer(SCENE_BOUNDS, 224, torch.tensor([0, 0, 0], device=device), device=device)
 
     demos = get_demos()
-    state_action_tuples = create_orthographic_labels(demos[0], renderer, device, include_eef_pos=True) # type: ignore
+    state_action_tuples = create_orthographic_labels(demos[0], renderer, device, include_extra_metadata=True) # type: ignore
 
     # Test with first keypoint.
-    (yz_image, xz_image, xy_image), (yz_pos, xz_pos, xy_pos), pos_3d = state_action_tuples[0]
+    (yz_image, xz_image, xy_image), (yz_pos, xz_pos, xy_pos), (start_obs, target_obs) = state_action_tuples[0]
 
     starting_point = torch.tensor([0.2, 0, 0.8], device=device)
 
