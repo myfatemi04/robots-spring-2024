@@ -109,9 +109,17 @@ def get_camera(camera_id: str, origin=(0, 0, 0)):
 def render_virtual_plan(gripper_matrix: np.ndarray, origin, points, colors, gripper_width: float = 0.08):
     # Create the scene.
     scene = pyrender.Scene(ambient_light=[1.0, 1.0, 1.0])
-    gripper_node = create_hand_node(gripper_width)
-    gripper_node.matrix = gripper_matrix
-    scene.add_node(gripper_node)
+    gripper_root_node = create_hand_node(gripper_width)
+    # Translate upwards by 0.1 to make the origin be the center between the eef fingers
+    eef_correction = -0.11
+    gripper_root_node.matrix = np.array([
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1, eef_correction],
+        [0, 0, 0, 1],
+    ])
+    gripper_node_corrected = pyrender.Node(matrix=gripper_matrix, children=[gripper_root_node])
+    scene.add_node(gripper_node_corrected)
 
     # RGBA. Make background transparent.
     scene.bg_color = np.array([0.0, 0.0, 0.0, 1.0])
@@ -130,22 +138,6 @@ def render_virtual_plan(gripper_matrix: np.ndarray, origin, points, colors, grip
         camera, matrix = get_camera(camera_id, origin=origin)
         camera.xmag = 0.5
         camera.ymag = 0.5
-        # if camera_id == 'xy':
-        #     camera.xmag = x_scale
-        #     camera.ymag = y_scale
-        #     image = xy_image
-        # elif camera_id == 'xz':
-        #     camera.xmag = x_scale
-        #     camera.ymag = z_scale
-        #     image = xz_image
-        # elif camera_id == 'yz':
-        #     camera.xmag = y_scale
-        #     camera.ymag = z_scale
-        #     image = yz_image
-        # else:
-        #     assert False, "Invalid camera id; should be xy, xz, or yz."
-        # if type(image) == torch.Tensor:
-        #     image = image.detach().cpu().numpy()
 
         camera_node = pyrender.Node(camera=camera, matrix=matrix)
         scene.add_node(camera_node)
@@ -156,50 +148,47 @@ def render_virtual_plan(gripper_matrix: np.ndarray, origin, points, colors, grip
 
         plt.subplot(1, 3, i * 1 + 1)
         plt.title("Color " + camera_id)
-        # plt.imshow(image, origin='lower')
         plt.imshow(color, origin='lower')
-        # plt.subplot(3, 2, i * 2 + 2)
-        # plt.title("Depth")
-        # plt.imshow(depth, origin='lower')
         
     plt.tight_layout()
     plt.savefig("gripper_rendering_multiview.png", dpi=512)
 
-from get_data import get_demos
-from demo_to_state_action_pairs import create_orthographic_labels
-from voxel_renderer_slow import VoxelRenderer, SCENE_BOUNDS
-import torch
+def test():
+    from get_data import get_demos
+    from demo_to_state_action_pairs import create_orthographic_labels
+    from voxel_renderer_slow import VoxelRenderer, SCENE_BOUNDS
+    import torch
 
-device = 'cuda'
+    device = 'cuda'
 
-# TODO: Switch to PyRender for this.
-renderer = VoxelRenderer(SCENE_BOUNDS, 224, torch.tensor([0, 0, 0], device=device), device=device)
+    # TODO: Switch to PyRender for this.
+    renderer = VoxelRenderer(SCENE_BOUNDS, 224, torch.tensor([0, 0, 0], device=device), device=device)
 
-demos = get_demos()
-state_action_tuples = create_orthographic_labels(demos[0], renderer, device, include_extra_metadata=True) # type: ignore
+    demos = get_demos()
+    state_action_tuples = create_orthographic_labels(demos[0], renderer, device, include_extra_metadata=True) # type: ignore
 
-# Test with first keypoint.
-(yz_image, xz_image, xy_image), (yz_pos, xz_pos, xy_pos), (start_obs, target_obs) = state_action_tuples[0]
+    # Test with first keypoint.
+    (yz_image, xz_image, xy_image), (yz_pos, xz_pos, xy_pos), (start_obs, target_obs) = state_action_tuples[2]
 
-gripper_matrix = target_obs.gripper_matrix
-gripper_width = 0.08 * target_obs.gripper_open
+    gripper_matrix = start_obs.gripper_matrix
+    gripper_width = 0.08 * start_obs.gripper_open
 
-cameras = [
-    'front',
-    'left_shoulder',
-    'right_shoulder',
-    'wrist',
-    'overhead',
-]
-points = [torch.tensor(getattr(start_obs, camera + '_point_cloud').reshape(-1, 3)) for camera in cameras]
-colors = [torch.tensor(getattr(start_obs, camera + '_rgb').reshape(-1, 3) / 255.0) for camera in cameras]
-points = torch.cat(points).numpy()
-colors = torch.cat(colors).numpy()
+    cameras = [
+        'front',
+        'left_shoulder',
+        'right_shoulder',
+        'wrist',
+        'overhead',
+    ]
+    points = [torch.tensor(getattr(start_obs, camera + '_point_cloud').reshape(-1, 3)) for camera in cameras]
+    colors = [torch.tensor(getattr(start_obs, camera + '_rgb').reshape(-1, 3) / 255.0) for camera in cameras]
+    points = torch.cat(points).numpy()
+    colors = torch.cat(colors).numpy()
 
-mins, maxs = np.array(SCENE_BOUNDS).reshape(2, 3)
-origin = (mins + maxs) / 2
-scales = 1/(maxs - mins)
+    mins, maxs = np.array(SCENE_BOUNDS).reshape(2, 3)
+    origin = (mins + maxs) / 2
 
-gripper_t = list(gripper_matrix[:3, 3])
+    render_virtual_plan(gripper_matrix, origin, points, colors, gripper_width)
 
-render_virtual_plan(gripper_matrix, origin, points, colors, gripper_width)
+if __name__ == '__main__':
+    test()
