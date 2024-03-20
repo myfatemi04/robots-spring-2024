@@ -76,8 +76,8 @@ class VoxelRenderer:
         yz_image = torch.ones((z_size, y_size, 3), dtype=color_3d.dtype, device=self.device)
         yz_image[:] = self.background_color
         for x in range(x_size):
-            mask_slice = mask_3d[x, :, :]
-            color_slice = color_3d[x, :, :]
+            mask_slice = mask_3d[x, :, :].T.unsqueeze(-1)
+            color_slice = color_3d[x, :, :].permute(1, 0, 2)
 
             yz_image = yz_image * (1 - mask_slice) + color_slice
             
@@ -85,8 +85,8 @@ class VoxelRenderer:
         xz_image[:] = self.background_color
         for y in range(y_size):
             # [x, z] -> [z, x]
-            mask_slice = mask_3d[:, y, :].T
-            color_slice = color_3d[:, y, :].T
+            mask_slice = mask_3d[:, y, :].T.unsqueeze(-1)
+            color_slice = color_3d[:, y, :].permute(1, 0, 2)
 
             xz_image = xz_image * (1 - mask_slice) + color_slice
         
@@ -94,8 +94,8 @@ class VoxelRenderer:
         xy_image[:] = self.background_color
         for z in range(z_size):
             # [x, y] -> [y, x]
-            mask_slice = mask_3d[:, :, z].T
-            color_slice = color_3d[:, :, z].T
+            mask_slice = mask_3d[:, :, z].T.unsqueeze(-1)
+            color_slice = color_3d[:, :, z].permute(1, 0, 2)
             
             xy_image = xy_image * (1 - mask_slice) + color_slice
 
