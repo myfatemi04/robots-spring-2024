@@ -99,7 +99,7 @@ def train():
     grid_size = 14
 
     for epoch in range(20):
-        for (image, position) in (pbar := tqdm.tqdm(dataloader)):
+        for (image, position, quat) in (pbar := tqdm.tqdm(dataloader)):
             pixel_values = clip_processor(images=image, return_tensors="pt", do_rescale=False).to(device=device).pixel_values # type: ignore
 
             scaled_target_position = image_coordinates_to_noise_coordinates(position, image_scaling, center)
@@ -108,12 +108,21 @@ def train():
             pixel_scaled_positions[..., 1] = (0.5 + torch.arange(grid_size, device=device).view(1, grid_size).expand(grid_size, grid_size)) * 2 / grid_size - 1
             pixel_scaled_positions = pixel_scaled_positions.unsqueeze(0).expand(position.shape[0], -1, -1, -1)
 
+            distances = (pixel_scaled_positions - scaled_target_position.view(-1, 1, 1, 2)).norm(dim=-1, keepdim=True)
+            quat_loss_weighting = torch.exp(-distances / 0.1)
+            quat_loss_weighting = quat_loss_weighting / quat_loss_weighting.sum(dim=(1, 2, 3), keepdim=True)
+
             true_direction = (scaled_target_position.view(-1, 1, 1, 2) - pixel_scaled_positions)
 
             # (batch, token_y, token_x, 2) -> (batch, token_x, token_y, 2)
-            pred_direction = model(pixel_values).view(-1, grid_size, grid_size, 2).permute(0, 2, 1, 3).contiguous()
+            pred = model(pixel_values).view(-1, grid_size, grid_size, 2).permute(0, 2, 1, 3)
+            pred_direction = pred[..., 0:2].contiguous()
+            pred_quat = pred[..., 2:6].contiguous()
 
-            loss = (pred_direction - true_direction).pow(2).mean()
+            pos_loss = (pred_direction - true_direction).pow(2).mean()
+            quat_loss = ((pred_quat - quat).pow(2) * quat_loss_weighting).mean()
+            loss = pos_loss + quat_loss
+
             optim.zero_grad()
             loss.backward()
             optim.step()
@@ -313,5 +322,5 @@ def evaluate():
     plt.tight_layout()
     plt.savefig("2d_multiview_sampling_trajectory.png", dpi=512)
 
-# train()
+train()
 # evaluate()

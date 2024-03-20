@@ -123,3 +123,35 @@ def create_orthographic_labels_v2(demo: Demo, renderer: VoxelRenderer, device="c
         previous_pos = keypoint
 
     return tuples
+
+def create_torch_dataset_v2(demos, device):
+    SCENE_BOUNDS = [
+        -0.3, -0.5,
+        0.6, 0.7,
+        0.5, 1.6,
+    ]
+    VOXEL_IMAGE_SIZE = 224
+    BACKGROUND_COLOR = torch.tensor([0, 0, 0], device=device)
+    # Use this to generate the input images.
+    renderer = VoxelRenderer(SCENE_BOUNDS, VOXEL_IMAGE_SIZE, BACKGROUND_COLOR, device=device)
+
+    images = []
+    positions = []
+    quats = []
+
+    for demo in demos:
+        for (images_, positions_, quats_) in create_orthographic_labels_v2(demo, renderer, device=device):
+            # `images_` and `positions_` are sorted into images along x, y, and z axes, respectively.
+            # Flip the y axis.
+            images.extend([image.permute(2, 0, 1) for image in images_])
+            positions.extend([torch.tensor(pos, device=device) for pos in positions_])
+            quats.extend([torch.tensor(quat, device=device) for quat in quats_])
+
+    images = torch.stack(images)
+    positions = torch.stack(positions)
+    quats = torch.stack(quats)
+
+    # Create a dataset of images -> 2D positions.
+    dataset = torch.utils.data.TensorDataset(images, positions, quats)
+
+    return dataset
