@@ -206,3 +206,18 @@ class VisualPlanDiffuserV6(torch.nn.Module):
 
     def forward(self, pixel_values: torch.FloatTensor) -> torch.Tensor:
         return self.noise_decoder(self.tfmr(pixel_values).last_hidden_state[:, 1:, :])
+
+# continuous and predicting direction of nearest planning mode; but using CLIP as a backbone
+# now, also predicting a quaternion!
+class VisualPlanDiffuserV7(torch.nn.Module):
+    def __init__(self, clip: CLIPVisionModel):
+        super().__init__()
+
+        d_model = clip.config.hidden_size
+        
+        self.tfmr = clip
+        self.noise_decoder = nn.Linear(d_model, 2 + 4) # 2 for translation, 4 for quaternion
+
+    def forward(self, pixel_values: torch.FloatTensor) -> torch.Tensor:
+        return self.noise_decoder(self.tfmr(pixel_values).last_hidden_state[:, 1:, :])
+

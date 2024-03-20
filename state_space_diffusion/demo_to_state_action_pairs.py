@@ -78,3 +78,43 @@ def create_torch_dataset(demos, device):
     dataset = torch.utils.data.TensorDataset(images, positions)
 
     return dataset
+
+# v2: includes quaternions
+def create_orthographic_labels_v2(demo: Demo, renderer: VoxelRenderer, device="cuda", include_extra_metadata=False):
+    keypoints = get_keypoint_observation_indexes(demo)
+
+
+    assert keypoints[0] != 0, "Start position is not a keypoint."
+
+    previous_pos = 0
+
+    tuples = []
+
+    for keypoint in keypoints:
+        # We are predicting KEYPOINT based on our observation at PREVIOUS_POS.
+        start_obs = demo[previous_pos]
+        target_obs = demo[keypoint]
+        eef_pos = target_obs.gripper_pose[:3]
+
+        # Get point clouds for virtual views.
+        pcds = [torch.tensor(getattr(start_obs, camera + '_point_cloud').reshape(-1, 3)) for camera in cameras]
+        colors = [torch.tensor(getattr(start_obs, camera + '_rgb').reshape(-1, 3) / 255.0) for camera in cameras]
+        pcd = torch.cat(pcds).to(device)
+        color = torch.cat(colors).to(device)
+        
+        # Render virtual views.
+        # x image: axes are (+y, +z)
+        # y image: axes are (+x, +z)
+        # z image: axes are (+x, +y)
+        (yz_image, xz_image, xy_image) = renderer(pcd, color)
+        (yz_pos, xz_pos, xy_pos) = renderer.point_location_on_images(torch.tensor(eef_pos, device=device))
+
+        if include_extra_metadata:
+            tuples.append(((yz_image, xz_image, xy_image), (yz_pos, xz_pos, xy_pos), (start_obs, target_obs)))
+        else:
+            # for compatibility
+            tuples.append(((yz_image, xz_image, xy_image), (yz_pos, xz_pos, xy_pos)))
+        
+        previous_pos = keypoint
+
+    return tuples
