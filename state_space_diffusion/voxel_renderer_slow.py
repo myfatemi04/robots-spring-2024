@@ -35,7 +35,10 @@ class VoxelRenderer:
 
     def _discretize_point(self, xyz: torch.Tensor):
         return (
-            self.voxel_size * (xyz - self.mins) / (self.maxs - self.mins) # scale
+            # voxel_size represents a camera intrinsic matrix
+            self.voxel_size * (xyz - self.mins)
+            # assume coordinates follow the same aspect ratio
+            # / (self.maxs - self.mins) # scale
         ).to(torch.long) # discretize
 
     def point_location_on_images(self, xyz: torch.Tensor):
@@ -67,28 +70,36 @@ class VoxelRenderer:
         return (color_3d, mask_3d)
     
     def render_voxels_orthographically(self, color_3d: torch.Tensor, mask_3d: torch.Tensor):
-        w, h, d, _ = color_3d.shape
+        x_size, y_size, z_size, _ = color_3d.shape
 
         # iterate over each slice and render it
-        x_image = torch.ones((h, d, 3), dtype=color_3d.dtype, device=self.device)
-        x_image[:] = self.background_color
-        for x in range(w):
-            x_image = x_image * (1 - mask_3d[x, :, :])[:, :, None] + color_3d[x, :, :]
-        x_image = x_image.permute(1, 0, 2)
-            
-        y_image = torch.ones((w, d, 3), dtype=color_3d.dtype, device=self.device)
-        y_image[:] = self.background_color
-        for y in range(h):
-            y_image = y_image * (1 - mask_3d[:, y, :])[:, :, None] + color_3d[:, y, :]
-        y_image = y_image.permute(1, 0, 2)
-        
-        z_image = torch.ones((h, w, 3), dtype=color_3d.dtype, device=self.device)
-        z_image[:] = self.background_color
-        for z in range(d):
-            z_image = z_image * (1 - mask_3d[:, :, z])[:, :, None] + color_3d[:, :, z]
-        z_image = z_image.permute(1, 0, 2)
+        yz_image = torch.ones((z_size, y_size, 3), dtype=color_3d.dtype, device=self.device)
+        yz_image[:] = self.background_color
+        for x in range(x_size):
+            mask_slice = mask_3d[x, :, :]
+            color_slice = color_3d[x, :, :]
 
-        return (x_image, y_image, z_image)
+            yz_image = yz_image * (1 - mask_slice) + color_slice
+            
+        xz_image = torch.ones((z_size, x_size, 3), dtype=color_3d.dtype, device=self.device)
+        xz_image[:] = self.background_color
+        for y in range(y_size):
+            # [x, z] -> [z, x]
+            mask_slice = mask_3d[:, y, :].T
+            color_slice = color_3d[:, y, :].T
+
+            xz_image = xz_image * (1 - mask_slice) + color_slice
+        
+        xy_image = torch.ones((y_size, x_size, 3), dtype=color_3d.dtype, device=self.device)
+        xy_image[:] = self.background_color
+        for z in range(z_size):
+            # [x, y] -> [y, x]
+            mask_slice = mask_3d[:, :, z].T
+            color_slice = color_3d[:, :, z].T
+            
+            xy_image = xy_image * (1 - mask_slice) + color_slice
+
+        return (yz_image, xz_image, xy_image)
     
     def render_point_cloud(self, point_cloud: torch.Tensor, color: torch.Tensor):
         color_3d, mask_3d = self.voxelize(point_cloud, color)
