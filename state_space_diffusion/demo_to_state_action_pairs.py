@@ -1,8 +1,9 @@
+import quaternions as Q
+import torch
+import torch.utils.data
 from keypoint_generation import get_keypoint_observation_indexes
 from rlbench.demo import Demo
 from voxel_renderer_slow import VoxelRenderer
-import torch
-import torch.utils.data
 
 cameras = [
     'front',
@@ -94,7 +95,8 @@ def create_orthographic_labels_v2(demo: Demo, renderer: VoxelRenderer, device="c
         # We are predicting KEYPOINT based on our observation at PREVIOUS_POS.
         start_obs = demo[previous_pos]
         target_obs = demo[keypoint]
-        eef_pos = target_obs.gripper_pose[:3]
+        target_pos = target_obs.gripper_pose[:3]
+        target_quat = target_obs.gripper_pose[3:]
 
         # Get point clouds for virtual views.
         pcds = [torch.tensor(getattr(start_obs, camera + '_point_cloud').reshape(-1, 3)) for camera in cameras]
@@ -107,13 +109,16 @@ def create_orthographic_labels_v2(demo: Demo, renderer: VoxelRenderer, device="c
         # y image: axes are (+x, +z)
         # z image: axes are (+x, +y)
         (yz_image, xz_image, xy_image) = renderer(pcd, color)
-        (yz_pos, xz_pos, xy_pos) = renderer.point_location_on_images(torch.tensor(eef_pos, device=device))
+        (yz_pos, xz_pos, xy_pos) = renderer.point_location_on_images(torch.tensor(target_pos, device=device))
+        
+        yz_quat = Q.compose_quaternions(Q.ROTATE_WORLD_QUATERNION_TO_CAMERA_QUATERNION['yz'], target_quat)
+        xz_quat = Q.compose_quaternions(Q.ROTATE_WORLD_QUATERNION_TO_CAMERA_QUATERNION['xz'], target_quat)
+        xy_quat = Q.compose_quaternions(Q.ROTATE_WORLD_QUATERNION_TO_CAMERA_QUATERNION['xy'], target_quat)
 
+        tuple_ = ((yz_image, xz_image, xy_image), (yz_pos, xz_pos, xy_pos), (yz_quat, xz_quat, xy_quat))
         if include_extra_metadata:
-            tuples.append(((yz_image, xz_image, xy_image), (yz_pos, xz_pos, xy_pos), (start_obs, target_obs)))
-        else:
-            # for compatibility
-            tuples.append(((yz_image, xz_image, xy_image), (yz_pos, xz_pos, xy_pos)))
+            tuple_ = (*tuple_, (start_obs, target_obs))
+        tuples.append(tuple_)
         
         previous_pos = keypoint
 

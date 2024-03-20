@@ -232,7 +232,7 @@ def sample(model, renderer, xy_image, yz_image, xz_image, start_point, device="c
 def evaluate():
     device = torch.device("cuda")
     clip = transformers.CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch16")
-    model = VisualPlanDiffuserV6(clip).to(device) # type: ignore
+    model = VisualPlanDiffuserV7(clip).to(device) # type: ignore
     model.load_state_dict(torch.load("diffusion_model.pt"))
 
     renderer = VoxelRenderer(SCENE_BOUNDS, 224, torch.tensor([0, 0, 0], device=device), device=device)
