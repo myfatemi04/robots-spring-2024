@@ -24,17 +24,22 @@ ROTATE_CAMERA_QUATERNION_TO_WORLD_QUATERNION = {
     # what is in camera x/y is actually in world x/z.
     # thus we rotate around camera x by -np.pi/2
     'xz': compose_quaternions(
-        create_quaternion(np.pi/2, [0, 1, 0]),
-        create_quaternion(np.pi, [0, 0, 1]),
+        create_quaternion(-np.pi/2, [1, 0, 0]),
+        create_quaternion(0, [0, 0, 1]),
+        # create_quaternion(np.pi, [0, 0, 1]),
     ),
     # what is in camera x/y is actually in world y/z.
     # thus we rotate camera z up to camera y first (bringin it to world z),
     # then we rotate camera x to world z
     'yz': compose_quaternions(
-        create_quaternion(-np.pi/2, [0, 0, 1]), # applied first
-        create_quaternion(-np.pi/2, [1, 0, 0]), # applied second
+        create_quaternion(-np.pi/2, [0, 0, 1]), # applied second
+        create_quaternion(-np.pi/2, [1, 0, 0]), # applied first
     )
 }
+
+"""
+
+"""
 
 ROTATE_WORLD_QUATERNION_TO_CAMERA_QUATERNION = {
     # Inverse of a quaternion can be found by negating sin(theta/2).
@@ -46,7 +51,9 @@ def rotation_matrix_to_quaternion(matrix: np.ndarray):
         matrix = matrix[:3, :3]
     else:
         assert matrix.shape == (3, 3), f"Matrix shape is {matrix.shape}. Must be 3x3 (R) or 4x4 (RT)."
-    return Rotation.from_matrix(matrix).as_quat()
+    quat = Rotation.from_matrix(matrix).as_quat()
+    # scipy uses scalar-last format
+    return np.array([quat[-1], *quat[:-1]])
 
 def quaternion_to_rotation_matrix(quat: np.ndarray):
     # scipy uses scalar-last format

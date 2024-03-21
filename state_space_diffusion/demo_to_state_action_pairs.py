@@ -84,7 +84,6 @@ def create_torch_dataset(demos, device):
 def create_orthographic_labels_v2(demo: Demo, renderer: VoxelRenderer, device="cuda", include_extra_metadata=False):
     keypoints = get_keypoint_observation_indexes(demo)
 
-
     assert keypoints[0] != 0, "Start position is not a keypoint."
 
     previous_pos = 0
@@ -96,7 +95,10 @@ def create_orthographic_labels_v2(demo: Demo, renderer: VoxelRenderer, device="c
         start_obs = demo[previous_pos]
         target_obs = demo[keypoint]
         target_pos = target_obs.gripper_pose[:3]
-        target_quat = target_obs.gripper_pose[3:]
+        # We use this quaternion, as it is in world frame.
+        target_quat = Q.rotation_matrix_to_quaternion(target_obs.gripper_matrix[:3, :3])
+        # This one has messed up axes for some reason. Maybe it is from the perspective of some other frame.
+        # target_quat = target_obs.gripper_pose[3:]
 
         # Get point clouds for virtual views.
         pcds = [torch.tensor(getattr(start_obs, camera + '_point_cloud').reshape(-1, 3)) for camera in cameras]

@@ -1,4 +1,4 @@
-### Goal: Make something that can effectively denoise towards the point (2/3, 2/3).
+### v8: 
 
 from functools import partial
 
@@ -74,7 +74,7 @@ def scaled_arrows(image, pixel_scaled_positions, pred_direction, true_direction)
         label='True'
     )
 
-def train(demos, epochs=20):
+def train():
     device = torch.device('cuda')
 
     clip = transformers.CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch16").to(device) # type: ignore
@@ -95,12 +95,12 @@ def train(demos, epochs=20):
 
     optim = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=1e-5)
 
-    dataset = create_torch_dataset_v2(demos, device=device)
+    dataset = create_torch_dataset_v2(get_demos(), device=device)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=16, shuffle=True)
 
     grid_size = 14
 
-    for epoch in range(epochs):
+    for epoch in range(20):
         for (image, position, quat) in (pbar := tqdm.tqdm(dataloader)):
             pixel_values = clip_processor(images=image, return_tensors="pt", do_rescale=False).to(device=device).pixel_values # type: ignore
 
@@ -212,7 +212,7 @@ def sample(model, renderer, xy_image, yz_image, xz_image, start_point, device="c
 
     xmin, ymin, zmin, xmax, ymax, zmax = SCENE_BOUNDS
 
-    n_steps = 50
+    n_steps = 10
     step_sizes = torch.linspace(0.2, 0.1, n_steps, device=device)
     grid_size = 14
     grid_square_size = 16
@@ -263,7 +263,7 @@ def sample(model, renderer, xy_image, yz_image, xz_image, start_point, device="c
 
     return history, history_quats, (history_xy, history_yz, history_xz), (score_xy_map, score_yz_map, score_xz_map)
 
-def evaluate(demo, output_prefix):
+def evaluate():
     device = torch.device("cuda")
     clip = transformers.CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch16")
     model = VisualPlanDiffuserV7(clip).to(device) # type: ignore
@@ -271,7 +271,8 @@ def evaluate(demo, output_prefix):
 
     renderer = VoxelRenderer(SCENE_BOUNDS, 224, torch.tensor([0, 0, 0], device=device), device=device)
 
-    state_action_tuples = create_orthographic_labels(demo, renderer, device, include_extra_metadata=True) # type: ignore
+    demos = get_demos()
+    state_action_tuples = create_orthographic_labels(demos[0], renderer, device, include_extra_metadata=True) # type: ignore
 
     # Test with first keypoint.
     (yz_image, xz_image, xy_image), (yz_pos, xz_pos, xy_pos), (start_obs, target_obs) = state_action_tuples[0]
@@ -288,7 +289,7 @@ def evaluate(demo, output_prefix):
     ax.set_ylim(-viewbox_size, viewbox_size)
     ax.set_zlim(-viewbox_size, viewbox_size)
     ax.plot([point[0].item() for point in history], [point[1].item() for point in history], [point[2].item() for point in history])
-    plt.savefig(output_prefix + "_3d_sampling_trajectory.png")
+    plt.savefig("3d_sampling_trajectory.png")
     # plt.show()
 
     tensor2numpy = lambda x: x.detach().cpu().numpy()
@@ -363,10 +364,7 @@ def evaluate(demo, output_prefix):
 
 
     plt.tight_layout()
-    plt.savefig(output_prefix + "_2d_multiview_sampling_trajectory.png", dpi=512)
+    plt.savefig("2d_multiview_sampling_trajectory.png", dpi=512)
 
-demos = get_demos()
-print("Running training. [10 epochs]")
-train(demos[:7], epochs=10)
-print("Running evaluation on held-out demo.")
-evaluate(demos[-1], 'demo_7')
+# train()
+evaluate()
