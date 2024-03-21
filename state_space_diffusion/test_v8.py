@@ -9,8 +9,9 @@ import torch
 import torch.utils.data
 import tqdm
 import transformers
-from demo_to_state_action_pairs import (create_orthographic_labels,
-                                        create_torch_dataset_v2)
+from demo_to_state_action_pairs import (CAMERAS, create_labels_v3,
+                                        create_torch_dataset_v3,
+                                        make_projection, prepare_image)
 from get_data import get_demos
 from model_architectures import VisualPlanDiffuserV7
 from voxel_renderer_slow import SCENE_BOUNDS, VoxelRenderer
@@ -52,7 +53,9 @@ IN = partial(image_coordinates_to_noise_coordinates, image_scaling=image_scaling
 NP = lambda x: x.detach().cpu().numpy()
 
 def scaled_arrows(image, pixel_scaled_positions, pred_direction, true_direction):
-    plt.imshow(image.detach().cpu().numpy().transpose(1, 2, 0), origin="lower")
+    if type(image) == torch.Tensor:
+        image = image.detach().cpu().numpy().transpose(1, 2, 0)
+    plt.imshow(image, origin="lower")
 
     pred_arrow_ends = NI(pixel_scaled_positions)
     true_arrow_ends = NI(pixel_scaled_positions)
@@ -74,7 +77,7 @@ def scaled_arrows(image, pixel_scaled_positions, pred_direction, true_direction)
         label='True'
     )
 
-def train():
+def train(demos, epochs=20):
     device = torch.device('cuda')
 
     clip = transformers.CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch16").to(device) # type: ignore
@@ -95,12 +98,12 @@ def train():
 
     optim = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=1e-5)
 
-    dataset = create_torch_dataset_v2(get_demos(), device=device)
+    dataset = create_torch_dataset_v3(demos, device=device)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=16, shuffle=True)
 
     grid_size = 14
 
-    for epoch in range(20):
+    for epoch in range(epochs):
         for (image, position, quat) in (pbar := tqdm.tqdm(dataloader)):
             pixel_values = clip_processor(images=image, return_tensors="pt", do_rescale=False).to(device=device).pixel_values # type: ignore
 
@@ -177,14 +180,29 @@ def bilinear_interpolation(features: torch.Tensor, xy: torch.Tensor, grid_square
 
     return interpolated_value, (lower_x_ind, lower_y_ind)
 
+def score_to_3d_deflection(score: np.ndarray, extrinsic: np.ndarray, intrinsic: np.ndarray):
+    # create a 3D deflection vector.
+    # divide by focal lengths.
+    # score = np.stack([score[..., 0] / intrinsic[0, 0], score[..., 1] / intrinsic[1, 1]], axis=-1)
+    score = np.stack([score[..., 0] / intrinsic[0, 0] * 224, score[..., 1] / intrinsic[1, 1] * 224], axis=-1)
+    # append a z=0 dimension
+    score_3d = np.concatenate([score, np.zeros_like(score[..., 0:1])], axis=-1)
+
+    # rotate by the extrinsic matrix
+    rotation_matrix = extrinsic[:3, :3]
+    score_3d = rotation_matrix @ score_3d
+
+    # do not add translation; this is a *relative* position!
+    return score_3d
+
 # Let's try sampling from the model. Given multiple views, let's try to use this score function + Langevin dynamics
 # to sample a 3D position. Ideally, because we're using multiple views, we'll be able to extract 3D positions using
 # ONLY 2D training data!
 # At some point, we will want to add noise conditioning.
-def sample(model, renderer, xy_image, yz_image, xz_image, start_point, device="cuda"):
+def sample(model, images, extrinsics, intrinsics, start_point, device="cuda"):
     clip_processor = transformers.CLIPProcessor.from_pretrained("openai/clip-vit-base-patch16") # type: ignore
     pixel_values = clip_processor(
-        images=[xy_image, yz_image, xz_image],
+        images=images,
         return_tensors="pt",
         do_rescale=False
     ).to(device=device).pixel_values # type: ignore
@@ -192,21 +210,15 @@ def sample(model, renderer, xy_image, yz_image, xz_image, start_point, device="c
     # langevin dynamics
     # first, calculate score function. we permute to make axes [batch, x, y, 6]
     with torch.no_grad():
-        xy_map, yz_map, xz_map = model(pixel_values).view(-1, 14, 14, 6).permute(0, 2, 1, 3).contiguous()
-        score_xy_map = xy_map[..., 0:2].contiguous()
-        score_yz_map = yz_map[..., 0:2].contiguous()
-        score_xz_map = xz_map[..., 0:2].contiguous()
-        quat_xy_map = xy_map[..., 2:6].contiguous()
-        quat_yz_map = yz_map[..., 2:6].contiguous()
-        quat_xz_map = xz_map[..., 2:6].contiguous()
+        maps = model(pixel_values).view(-1, 14, 14, 6).permute(0, 2, 1, 3)
+        score_maps = maps[..., 0:2].contiguous()
+        quat_maps = maps[..., 2:6].contiguous()
     pos = torch.tensor(start_point, device=device)
 
-    history = [pos]
+    history_3d = [pos]
+    history_2d = []
     # will store this in numpy
     history_quats = [np.array([1, 0, 0, 0])]
-    history_yz = []
-    history_xz = []
-    history_xy = []
 
     T = lambda x: torch.tensor(x, device=device)
 
@@ -221,35 +233,37 @@ def sample(model, renderer, xy_image, yz_image, xz_image, start_point, device="c
         # calculate score via bilinear interpolation
         max_grid_square_inclusive = grid_size - 1
 
-        # yz, xz, yx are in pixel coordinates, while the nn was trained to predict noise in [-1, 1]^2 coordinates
-        yz_loc, xz_loc, xy_loc = renderer.point_location_on_images(pos)
-        # print(xy_loc, yz_loc, xz_loc)
-        score_xy, _ = bilinear_interpolation(score_xy_map, (T(xy_loc)), grid_square_size, max_grid_square_inclusive)
-        score_yz, _ = bilinear_interpolation(score_yz_map, (T(yz_loc)), grid_square_size, max_grid_square_inclusive)
-        score_xz, _ = bilinear_interpolation(score_xz_map, (T(xz_loc)), grid_square_size, max_grid_square_inclusive)
-        quat_xy, _ = bilinear_interpolation(quat_xy_map, (T(xy_loc)), grid_square_size, max_grid_square_inclusive)
-        quat_yz, _ = bilinear_interpolation(quat_yz_map, (T(yz_loc)), grid_square_size, max_grid_square_inclusive)
-        quat_xz, _ = bilinear_interpolation(quat_xz_map, (T(xz_loc)), grid_square_size, max_grid_square_inclusive)
+        pixel_locations = [make_projection(extrinsic, intrinsic, pos.cpu().numpy()) for extrinsic, intrinsic in zip(extrinsics, intrinsics)]
+        scores_unrotated = [
+            bilinear_interpolation(score_map, (T(pixel_location)), grid_square_size, max_grid_square_inclusive)[0]
+            for score_map, pixel_location in zip(score_maps, pixel_locations)
+        ]
+        # calculate 3d deflection vectors according to scores predicted in pixel space.
+        # account for focal length, etc. (i.e., pixel space -> world space length conversion)
+        scores = [
+            torch.tensor(
+                score_to_3d_deflection(score_2d.cpu().numpy(), extrinsic, intrinsic),
+                device=device
+            )[:1]
+            for score_2d, extrinsic, intrinsic in zip(scores_unrotated, extrinsics, intrinsics)
+        ]
+        quats_unrotated = [
+            bilinear_interpolation(quat_map, (T(pixel_location)), grid_square_size, max_grid_square_inclusive)[0].cpu().numpy()
+            for quat_map, pixel_location in zip(quat_maps, pixel_locations)
+        ]
+        quats = [
+            Q.compose_quaternions(
+                Q.invert_quaternion(Q.rotation_matrix_to_quaternion(extrinsic[:3, :3])),
+                quat/np.linalg.norm(quat, axis=-1, keepdims=True)
+            )
+            for extrinsic, quat in zip(extrinsics, quats_unrotated)
+        ]
+        quat = np.mean(quats, axis=0)
 
-        # transform to world quaternions
-        quat_xy = Q.compose_quaternions(Q.ROTATE_CAMERA_QUATERNION_TO_WORLD_QUATERNION['xy'], quat_xy.cpu().numpy())
-        quat_yz = Q.compose_quaternions(Q.ROTATE_CAMERA_QUATERNION_TO_WORLD_QUATERNION['yz'], quat_yz.cpu().numpy())
-        quat_xz = Q.compose_quaternions(Q.ROTATE_CAMERA_QUATERNION_TO_WORLD_QUATERNION['xz'], quat_xz.cpu().numpy())
+        history_quats.append(quat)
+        history_2d.append(pixel_locations)
 
-        # convert to unit quaternion
-        quat = (quat_xy + quat_yz + quat_xz) / 3
-        quat = quat / np.linalg.norm(quat)
-
-        history_quats.append(quat) # type: ignore
-        history_yz.append(T(yz_loc))
-        history_xz.append(T(xz_loc))
-        history_xy.append(T(xy_loc))
-
-        score = torch.tensor([
-            score_xy[0] + score_xz[0],
-            score_xy[1] + score_yz[0],
-            score_xz[1] + score_yz[1],
-        ], device=device) / 2
+        score = torch.mean(torch.stack(scores), dim=0)
 
         # Take a step in the direction of the score
         step_size = step_sizes[step]
@@ -259,27 +273,28 @@ def sample(model, renderer, xy_image, yz_image, xz_image, start_point, device="c
         pos = torch.max(pos, T([xmin, ymin, zmin]))
         pos = torch.min(pos, T([xmax, ymax, zmax]))
 
-        history.append(pos)
+        history_3d.append(pos)
 
-    return history, history_quats, (history_xy, history_yz, history_xz), (score_xy_map, score_yz_map, score_xz_map)
+    return history_3d, history_quats, history_2d, score_maps
 
-def evaluate():
+def evaluate(demo, output_prefix):
     device = torch.device("cuda")
     clip = transformers.CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch16")
     model = VisualPlanDiffuserV7(clip).to(device) # type: ignore
     model.load_state_dict(torch.load("diffusion_model.pt"))
 
-    renderer = VoxelRenderer(SCENE_BOUNDS, 224, torch.tensor([0, 0, 0], device=device), device=device)
-
-    demos = get_demos()
-    state_action_tuples = create_orthographic_labels(demos[0], renderer, device, include_extra_metadata=True) # type: ignore
+    state_action_tuples = create_labels_v3(demo)
 
     # Test with first keypoint.
-    (yz_image, xz_image, xy_image), (yz_pos, xz_pos, xy_pos), (start_obs, target_obs) = state_action_tuples[0]
+    images, positions, quaternions, info = state_action_tuples[0]
+    extrinsics = info['extrinsics']
+    intrinsics = info['intrinsics']
 
     starting_point = torch.tensor([0.2, 0, 0.8], device=device)
 
-    history, history_quats, (history_xy, history_yz, history_xz), (score_xy_map, score_yz_map, score_xz_map) = sample(model, renderer, xy_image, yz_image, xz_image, starting_point)
+    images = [prepare_image(image) for image in images]
+    positions = torch.tensor(positions) * 224/128
+    history, history_quats, history_2d, score_maps = sample(model, images, extrinsics, intrinsics, starting_point)
 
     # Plot the history
     fig = plt.figure()
@@ -289,45 +304,34 @@ def evaluate():
     ax.set_ylim(-viewbox_size, viewbox_size)
     ax.set_zlim(-viewbox_size, viewbox_size)
     ax.plot([point[0].item() for point in history], [point[1].item() for point in history], [point[2].item() for point in history])
-    plt.savefig("3d_sampling_trajectory.png")
+    plt.savefig(output_prefix + "_3d_sampling_trajectory.png")
     # plt.show()
-
-    tensor2numpy = lambda x: x.detach().cpu().numpy()
-
-    # Plot the history per view
-
+    
     grid_size = 14
-
-    tuples = [
-        ("XY", history_xy, xy_image, xy_pos, score_xy_map),
-        ("YZ", history_yz, yz_image, yz_pos, score_yz_map),
-        ("XZ", history_xz, xz_image, xz_pos, score_xz_map),
-    ]
 
     plt.clf()
     plt.figure(figsize=(12, 4))
 
-    # For debugging the score function.
-    for i in range(3):
-        name, history, image, pos, score = tuples[i]
+    images = [image.detach().cpu().numpy().transpose(1, 2, 0) for image in images]
 
+    # For debugging the score function.
+    for i, (name, history, pos, image, score) in enumerate(zip(
+        CAMERAS, zip(*history_2d), positions, images, score_maps
+    )):
         position = torch.tensor(pos, device=device)
-        scaled_position = image_coordinates_to_noise_coordinates(position, image_scaling, center)
+
+        scaled_target_position = image_coordinates_to_noise_coordinates(position, image_scaling, center)
         pixel_scaled_positions = torch.zeros((grid_size, grid_size, 2), device=device)
         pixel_scaled_positions[..., 0] = (0.5 + torch.arange(grid_size, device=device).view(grid_size, 1).expand(grid_size, grid_size)) * 2 / grid_size - 1
         pixel_scaled_positions[..., 1] = (0.5 + torch.arange(grid_size, device=device).view(1, grid_size).expand(grid_size, grid_size)) * 2 / grid_size - 1
         pixel_scaled_positions = pixel_scaled_positions.unsqueeze(0).expand(position.shape[0], -1, -1, -1)
-        true_direction = (scaled_position.view(-1, 1, 1, 2) - pixel_scaled_positions)
 
-        # print(
-        #     # [batch, x, y]
-        #     bilinear_interpolation(score, torch.tensor([8, 8], device='cuda'), 16, 14 - 1),
-        #     score[0, 0],
-        # )
+        true_direction = (scaled_target_position.view(-1, 1, 1, 2) - pixel_scaled_positions)
 
-        plt.subplot(1, 3, i + 1)
+        plt.subplot(1, len(images), i + 1)
         plt.title(name + " View")
-        plt.imshow(tensor2numpy(image), origin="lower")
+        plt.imshow(image)
+        # plt.imshow(image.detach().cpu().numpy().permute(1, 2, 0), origin="lower")
         plt.scatter(
             [point[0].item() for point in history],
             [point[1].item() for point in history],
@@ -337,22 +341,17 @@ def evaluate():
         )
         # Project from 2D memory layout to serial layout
         scaled_arrows(
-            image.permute(2, 0, 1), # permute so it can get unpermuted lmfao
+            image,
             pixel_scaled_positions[0].view(-1, 2),
             score.view(-1, 2),
             true_direction[0].view(-1, 2),
         )
         # Visualize the quaternion
-        quaternions_in_camera_frame = [
-            Q.compose_quaternions(Q.ROTATE_WORLD_QUATERNION_TO_CAMERA_QUATERNION[name.lower()], history_quats[j])
-            for j in range(len(history_quats))
-        ]
         for j in range(1, len(history_quats)):
-            quat = quaternions_in_camera_frame[j]
+            quat_as_matrix = extrinsics[i][:3, :3].T @ Q.quaternion_to_rotation_matrix(history_quats[j])
             
             arrow_scale = 10
-            pos = history[j - 1].cpu().numpy()
-            quat_as_matrix = Q.quaternion_to_rotation_matrix(quat)
+            pos = history[j - 1]
 
             # plot x, y, z axes of this matrix
             # only plot the label if it's the first one to avoid overcrowding the legend
@@ -364,7 +363,10 @@ def evaluate():
 
 
     plt.tight_layout()
-    plt.savefig("2d_multiview_sampling_trajectory.png", dpi=512)
+    plt.savefig(output_prefix + "_2d_multiview_sampling_trajectory.png", dpi=512)
 
-# train()
-evaluate()
+demos = get_demos()
+# print("Running training. [20 epochs]")
+# train(demos[:7], epochs=20)
+print("Running evaluation on held-out demo.")
+evaluate(demos[-1], 'demo_7')

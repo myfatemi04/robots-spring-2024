@@ -1,3 +1,5 @@
+import numpy as np
+import PIL.Image
 import quaternions as Q
 import torch
 import torch.utils.data
@@ -5,7 +7,7 @@ from keypoint_generation import get_keypoint_observation_indexes
 from rlbench.demo import Demo
 from voxel_renderer_slow import VoxelRenderer
 
-cameras = [
+CAMERAS = [
     'front',
     'left_shoulder',
     'right_shoulder',
@@ -29,8 +31,8 @@ def create_orthographic_labels(demo: Demo, renderer: VoxelRenderer, device="cuda
         target_obs = demo[keypoint]
         eef_pos = target_obs.gripper_pose[:3]
 
-        pcds = [torch.tensor(getattr(start_obs, camera + '_point_cloud').reshape(-1, 3)) for camera in cameras]
-        colors = [torch.tensor(getattr(start_obs, camera + '_rgb').reshape(-1, 3) / 255.0) for camera in cameras]
+        pcds = [torch.tensor(getattr(start_obs, camera + '_point_cloud').reshape(-1, 3)) for camera in CAMERAS]
+        colors = [torch.tensor(getattr(start_obs, camera + '_rgb').reshape(-1, 3) / 255.0) for camera in CAMERAS]
         pcd = torch.cat(pcds).to(device)
         color = torch.cat(colors).to(device)
         
@@ -101,8 +103,8 @@ def create_orthographic_labels_v2(demo: Demo, renderer: VoxelRenderer, device="c
         # target_quat = target_obs.gripper_pose[3:]
 
         # Get point clouds for virtual views.
-        pcds = [torch.tensor(getattr(start_obs, camera + '_point_cloud').reshape(-1, 3)) for camera in cameras]
-        colors = [torch.tensor(getattr(start_obs, camera + '_rgb').reshape(-1, 3) / 255.0) for camera in cameras]
+        pcds = [torch.tensor(getattr(start_obs, camera + '_point_cloud').reshape(-1, 3)) for camera in CAMERAS]
+        colors = [torch.tensor(getattr(start_obs, camera + '_rgb').reshape(-1, 3) / 255.0) for camera in CAMERAS]
         pcd = torch.cat(pcds).to(device)
         color = torch.cat(colors).to(device)
         
@@ -147,6 +149,100 @@ def create_torch_dataset_v2(demos, device):
             # Flip the y axis.
             images.extend([image.permute(2, 0, 1) for image in images_])
             positions.extend([torch.tensor(pos, device=device) for pos in positions_])
+            quats.extend([torch.tensor(quat, device=device) for quat in quats_])
+
+    images = torch.stack(images)
+    positions = torch.stack(positions)
+    quats = torch.stack(quats)
+
+    # Create a dataset of images -> 2D positions.
+    dataset = torch.utils.data.TensorDataset(images, positions, quats)
+
+    return dataset
+
+def make_projection(extrinsic, intrinsic, points):
+    camera_translation = extrinsic[:3, 3]
+    camera_rotation_matrix = extrinsic[:3, :3]
+
+    # [4, 3] -> ([3, 3] @ [3, 4] = [3, 4]).T -> [4, 3]
+    pose = (camera_rotation_matrix.T @ (points - camera_translation).T).T
+    # [4, 3] -> ([3, 3] @ [3, 4] = [3, 4]).T -> [4, 3]
+    pixel_pose_homogeneous = (intrinsic @ pose.T).T
+    # Keep the final dimension for broadcasting.
+    pixel_pose = pixel_pose_homogeneous[..., :2] / pixel_pose_homogeneous[..., [2]]
+
+    return pixel_pose
+
+CAMERAS = [
+    'front',
+    'overhead',
+    'left_shoulder',
+    'right_shoulder',
+]
+
+# v3: uses arbitrary camera matrices
+def create_labels_v3(demo: Demo):
+    keypoints = get_keypoint_observation_indexes(demo)
+
+    assert keypoints[0] != 0, "Start position is not a keypoint."
+
+    previous_pos = 0
+
+    tuples = []
+
+    for keypoint in keypoints:
+        # We are predicting KEYPOINT based on our observation at PREVIOUS_POS.
+        start_obs = demo[previous_pos]
+        target_obs = demo[keypoint]
+        target_pos = target_obs.gripper_pose[:3]
+        # We use this quaternion, as it is in world frame (instead of gripper_pose[3:])
+        target_rotation_matrix = target_obs.gripper_matrix[:3, :3]
+
+        images = [getattr(start_obs, camera + '_rgb') for camera in CAMERAS]
+        extrinsics = [start_obs.misc[camera + '_camera_extrinsics'] for camera in CAMERAS]
+        camera_rotation_matrices = [e[:3, :3] for e in extrinsics]
+        intrinsics = [start_obs.misc[camera + '_camera_intrinsics'] for camera in CAMERAS]
+
+        pixel_targets = [
+            make_projection(extrinsic, intrinsic, target_pos)
+            for extrinsic, intrinsic in zip(extrinsics, intrinsics)
+        ]
+        # quaternions normalized to each camera
+        quaternion_targets = [
+            Q.rotation_matrix_to_quaternion(rotation_matrix.T @ target_rotation_matrix)
+            for rotation_matrix in camera_rotation_matrices
+        ]
+
+        tuples.append((images, pixel_targets, quaternion_targets, {'start_obs': start_obs, 'target_obs': target_obs, 'extrinsics': extrinsics, 'intrinsics': intrinsics}))
+
+        previous_pos = keypoint
+
+    return tuples
+
+def prepare_image(image: np.ndarray):
+    pil_img = PIL.Image.fromarray(image)
+    pil_img = pil_img.resize((224, 224), resample=PIL.Image.BILINEAR)
+    image = np.array(pil_img)
+    tensor = torch.tensor(image/255.0).permute(2, 0, 1)
+    return tensor
+
+def create_torch_dataset_v3(demos, device):
+    images = []
+    positions = []
+    quats = []
+
+    for demo in demos:
+        for label in create_labels_v3(demo):
+            images_ = label[0]
+            positions_ = label[1]
+            quats_ = label[2]
+            # extra metadata in label[3]
+
+            assert images_[0].shape == (128, 128, 3), "Unexpected image shape."
+
+            # Rescale images to 224.
+            images.extend([prepare_image(image) for image in images_])
+            positions.extend([torch.tensor(pos, device=device) * (224/128) for pos in positions_])
             quats.extend([torch.tensor(quat, device=device) for quat in quats_])
 
     images = torch.stack(images)
