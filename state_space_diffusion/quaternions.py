@@ -18,7 +18,7 @@ def invert_quaternion(quat):
 """
 All of these rotations apply to *camera coordinate frame*.
 """
-ROTATE_PERSPECTIVE_QUATERNION_TO_WORLD_QUATERNION = {
+ROTATE_CAMERA_QUATERNION_TO_WORLD_QUATERNION = {
     # what is in camera x/y is actually in world x/y
     'xy': create_quaternion(0, [1, 0, 0]),
     # what is in camera x/y is actually in world x/z.
@@ -38,7 +38,7 @@ ROTATE_PERSPECTIVE_QUATERNION_TO_WORLD_QUATERNION = {
 
 ROTATE_WORLD_QUATERNION_TO_CAMERA_QUATERNION = {
     # Inverse of a quaternion can be found by negating sin(theta/2).
-    key: invert_quaternion(quat) for key, quat in ROTATE_PERSPECTIVE_QUATERNION_TO_WORLD_QUATERNION.items()
+    key: invert_quaternion(quat) for key, quat in ROTATE_CAMERA_QUATERNION_TO_WORLD_QUATERNION.items()
 }
 
 def rotation_matrix_to_quaternion(matrix: np.ndarray):

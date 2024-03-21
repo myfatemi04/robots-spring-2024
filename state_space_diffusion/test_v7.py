@@ -4,12 +4,14 @@ from functools import partial
 
 import matplotlib.pyplot as plt
 import numpy as np
+import quaternions as Q
 import torch
 import torch.utils.data
 import tqdm
 import transformers
-from demo_to_state_action_pairs import create_orthographic_labels
-from get_data import get_data, get_demos
+from demo_to_state_action_pairs import (create_orthographic_labels,
+                                        create_torch_dataset_v2)
+from get_data import get_demos
 from model_architectures import VisualPlanDiffuserV7
 from voxel_renderer_slow import SCENE_BOUNDS, VoxelRenderer
 
@@ -58,16 +60,16 @@ def scaled_arrows(image, pixel_scaled_positions, pred_direction, true_direction)
     plt.quiver(
         NP(pred_arrow_ends[:, 0]),
         NP(pred_arrow_ends[:, 1]),
-        -NP(pred_direction[:, 0]) * image_scaling,
-        -NP(pred_direction[:, 1]) * image_scaling,
+        NP(pred_direction[:, 0]) * image_scaling,
+        NP(pred_direction[:, 1]) * image_scaling,
         color='red',
         label='Predicted'
     )
     plt.quiver(
         NP(true_arrow_ends[:, 0]),
         NP(true_arrow_ends[:, 1]),
-        -NP(true_direction[:, 0]) * image_scaling,
-        -NP(true_direction[:, 1]) * image_scaling,
+        NP(true_direction[:, 0]) * image_scaling,
+        NP(true_direction[:, 1]) * image_scaling,
         color='blue',
         label='True'
     )
@@ -93,7 +95,7 @@ def train():
 
     optim = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=1e-5)
 
-    dataset = get_data()
+    dataset = create_torch_dataset_v2(get_demos(), device=device)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=16, shuffle=True)
 
     grid_size = 14
@@ -111,23 +113,27 @@ def train():
             distances = (pixel_scaled_positions - scaled_target_position.view(-1, 1, 1, 2)).norm(dim=-1, keepdim=True)
             quat_loss_weighting = torch.exp(-distances / 0.1)
             quat_loss_weighting = quat_loss_weighting / quat_loss_weighting.sum(dim=(1, 2, 3), keepdim=True)
+            # unsqueeze spatial dims
+            quat = quat.view(-1, 1, 1, 4)
 
             true_direction = (scaled_target_position.view(-1, 1, 1, 2) - pixel_scaled_positions)
 
             # (batch, token_y, token_x, 2) -> (batch, token_x, token_y, 2)
-            pred = model(pixel_values).view(-1, grid_size, grid_size, 2).permute(0, 2, 1, 3)
+            pred = model(pixel_values).view(-1, grid_size, grid_size, 6).permute(0, 2, 1, 3)
             pred_direction = pred[..., 0:2].contiguous()
             pred_quat = pred[..., 2:6].contiguous()
 
-            pos_loss = (pred_direction - true_direction).pow(2).mean()
-            quat_loss = ((pred_quat - quat).pow(2) * quat_loss_weighting).mean()
-            loss = pos_loss + quat_loss
+            score_loss = (pred_direction - true_direction).pow(2).mean()
+
+            quat_loss_coeff = 10
+            quat_loss = quat_loss_coeff * ((pred_quat - quat).pow(2) * quat_loss_weighting).mean()
+            loss = score_loss + quat_loss
 
             optim.zero_grad()
             loss.backward()
             optim.step()
             
-            pbar.set_postfix({"loss": loss.item()})
+            pbar.set_postfix({"loss": loss.item(), "quat_loss": quat_loss.item(), "score_loss": score_loss.item()})
 
         # Visualize the vector field
         if (epoch + 1) % 10 == 0:
@@ -184,12 +190,20 @@ def sample(model, renderer, xy_image, yz_image, xz_image, start_point, device="c
     ).to(device=device).pixel_values # type: ignore
 
     # langevin dynamics
-    # first, calculate score function. we permute to make axes [batch, x, y, 2]
+    # first, calculate score function. we permute to make axes [batch, x, y, 6]
     with torch.no_grad():
-        score_xy_map, score_yz_map, score_xz_map = model(pixel_values).view(-1, 14, 14, 2).permute(0, 2, 1, 3).contiguous()
+        xy_map, yz_map, xz_map = model(pixel_values).view(-1, 14, 14, 6).permute(0, 2, 1, 3).contiguous()
+        score_xy_map = xy_map[..., 0:2].contiguous()
+        score_yz_map = yz_map[..., 0:2].contiguous()
+        score_xz_map = xz_map[..., 0:2].contiguous()
+        quat_xy_map = xy_map[..., 2:6].contiguous()
+        quat_yz_map = yz_map[..., 2:6].contiguous()
+        quat_xz_map = xz_map[..., 2:6].contiguous()
     pos = torch.tensor(start_point, device=device)
 
     history = [pos]
+    # will store this in numpy
+    history_quats = [np.array([1, 0, 0, 0])]
     history_yz = []
     history_xz = []
     history_xy = []
@@ -213,9 +227,20 @@ def sample(model, renderer, xy_image, yz_image, xz_image, start_point, device="c
         score_xy, _ = bilinear_interpolation(score_xy_map, (T(xy_loc)), grid_square_size, max_grid_square_inclusive)
         score_yz, _ = bilinear_interpolation(score_yz_map, (T(yz_loc)), grid_square_size, max_grid_square_inclusive)
         score_xz, _ = bilinear_interpolation(score_xz_map, (T(xz_loc)), grid_square_size, max_grid_square_inclusive)
+        quat_xy, _ = bilinear_interpolation(quat_xy_map, (T(xy_loc)), grid_square_size, max_grid_square_inclusive)
+        quat_yz, _ = bilinear_interpolation(quat_yz_map, (T(yz_loc)), grid_square_size, max_grid_square_inclusive)
+        quat_xz, _ = bilinear_interpolation(quat_xz_map, (T(xz_loc)), grid_square_size, max_grid_square_inclusive)
 
-        # print(xy_loc, score_xy, xy_biind[0].item(), xy_biind[1].item(), score_xy_map[xy_biind[0], xy_biind[1]])
+        # transform to world quaternions
+        quat_xy = Q.compose_quaternions(Q.ROTATE_CAMERA_QUATERNION_TO_WORLD_QUATERNION['xy'], quat_xy.cpu().numpy())
+        quat_yz = Q.compose_quaternions(Q.ROTATE_CAMERA_QUATERNION_TO_WORLD_QUATERNION['yz'], quat_yz.cpu().numpy())
+        quat_xz = Q.compose_quaternions(Q.ROTATE_CAMERA_QUATERNION_TO_WORLD_QUATERNION['xz'], quat_xz.cpu().numpy())
 
+        # convert to unit quaternion
+        quat = (quat_xy + quat_yz + quat_xz) / 3
+        quat = quat / np.linalg.norm(quat)
+
+        history_quats.append(quat) # type: ignore
         history_yz.append(T(yz_loc))
         history_xz.append(T(xz_loc))
         history_xy.append(T(xy_loc))
@@ -236,7 +261,7 @@ def sample(model, renderer, xy_image, yz_image, xz_image, start_point, device="c
 
         history.append(pos)
 
-    return history, (history_xy, history_yz, history_xz), (score_xy_map, score_yz_map, score_xz_map)
+    return history, history_quats, (history_xy, history_yz, history_xz), (score_xy_map, score_yz_map, score_xz_map)
 
 def evaluate():
     device = torch.device("cuda")
@@ -254,12 +279,12 @@ def evaluate():
 
     starting_point = torch.tensor([0.2, 0, 0.8], device=device)
 
-    history, (history_xy, history_yz, history_xz), (score_xy_map, score_yz_map, score_xz_map) = sample(model, renderer, xy_image, yz_image, xz_image, starting_point)
+    history, history_quats, (history_xy, history_yz, history_xz), (score_xy_map, score_yz_map, score_xz_map) = sample(model, renderer, xy_image, yz_image, xz_image, starting_point)
 
     # Plot the history
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
-    viewbox_size = 5 # 112 + some buffer
+    viewbox_size = 1 # 112 + some buffer
     ax.set_xlim(-viewbox_size, viewbox_size)
     ax.set_ylim(-viewbox_size, viewbox_size)
     ax.set_zlim(-viewbox_size, viewbox_size)
@@ -280,8 +305,7 @@ def evaluate():
     ]
 
     plt.clf()
-
-    plt.rcParams['figure.figsize'] = [20, 5]
+    plt.figure(figsize=(12, 4))
 
     # For debugging the score function.
     for i in range(3):
@@ -293,7 +317,7 @@ def evaluate():
         pixel_scaled_positions[..., 0] = (0.5 + torch.arange(grid_size, device=device).view(grid_size, 1).expand(grid_size, grid_size)) * 2 / grid_size - 1
         pixel_scaled_positions[..., 1] = (0.5 + torch.arange(grid_size, device=device).view(1, grid_size).expand(grid_size, grid_size)) * 2 / grid_size - 1
         pixel_scaled_positions = pixel_scaled_positions.unsqueeze(0).expand(position.shape[0], -1, -1, -1)
-        true_direction = (pixel_scaled_positions - scaled_position.view(-1, 1, 1, 2))
+        true_direction = (scaled_position.view(-1, 1, 1, 2) - pixel_scaled_positions)
 
         # print(
         #     # [batch, x, y]
@@ -315,12 +339,32 @@ def evaluate():
         scaled_arrows(
             image.permute(2, 0, 1), # permute so it can get unpermuted lmfao
             pixel_scaled_positions[0].view(-1, 2),
-            -score.view(-1, 2) / score.norm(dim=-1).view(-1, 1) * 0.1,
+            score.view(-1, 2),
             true_direction[0].view(-1, 2),
         )
+        # Visualize the quaternion
+        quaternions_in_camera_frame = [
+            Q.compose_quaternions(Q.ROTATE_WORLD_QUATERNION_TO_CAMERA_QUATERNION[name.lower()], history_quats[j])
+            for j in range(len(history_quats))
+        ]
+        for j in range(1, len(history_quats)):
+            quat = quaternions_in_camera_frame[j]
+            
+            arrow_scale = 10
+            pos = history[j - 1].cpu().numpy()
+            quat_as_matrix = Q.quaternion_to_rotation_matrix(quat)
+
+            # plot x, y, z axes of this matrix
+            # only plot the label if it's the first one to avoid overcrowding the legend
+            rotation_matrix_x, rotation_matrix_y, rotation_matrix_z = quat_as_matrix
+            plt.quiver(pos[0], pos[1], rotation_matrix_x[0], rotation_matrix_x[1], scale=arrow_scale, color='r', label='x' if j == 1 else None, alpha=0.5)
+            plt.quiver(pos[0], pos[1], rotation_matrix_y[0], rotation_matrix_y[1], scale=arrow_scale, color='g', label='y' if j == 1 else None, alpha=0.5)
+            plt.quiver(pos[0], pos[1], rotation_matrix_z[0], rotation_matrix_z[1], scale=arrow_scale, color='b', label='z' if j == 1 else None, alpha=0.5)
+        plt.legend()
+
 
     plt.tight_layout()
     plt.savefig("2d_multiview_sampling_trajectory.png", dpi=512)
 
-train()
-# evaluate()
+# train()
+evaluate()
