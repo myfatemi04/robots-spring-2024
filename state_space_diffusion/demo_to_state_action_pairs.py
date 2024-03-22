@@ -6,6 +6,7 @@ import torch.utils.data
 from keypoint_generation import get_keypoint_observation_indexes
 from rlbench.demo import Demo
 from voxel_renderer_slow import VoxelRenderer
+from projections import make_projection
 
 CAMERAS = [
     'front',
@@ -17,7 +18,6 @@ CAMERAS = [
 
 def create_orthographic_labels(demo: Demo, renderer: VoxelRenderer, device="cuda", include_extra_metadata=False):
     keypoints = get_keypoint_observation_indexes(demo)
-
 
     assert keypoints[0] != 0, "Start position is not a keypoint."
 
@@ -160,19 +160,6 @@ def create_torch_dataset_v2(demos, device):
 
     return dataset
 
-def make_projection(extrinsic, intrinsic, points):
-    camera_translation = extrinsic[:3, 3]
-    camera_rotation_matrix = extrinsic[:3, :3]
-
-    # [4, 3] -> ([3, 3] @ [3, 4] = [3, 4]).T -> [4, 3]
-    pose = (camera_rotation_matrix.T @ (points - camera_translation).T).T
-    # [4, 3] -> ([3, 3] @ [3, 4] = [3, 4]).T -> [4, 3]
-    pixel_pose_homogeneous = (intrinsic @ pose.T).T
-    # Keep the final dimension for broadcasting.
-    pixel_pose = pixel_pose_homogeneous[..., :2] / pixel_pose_homogeneous[..., [2]]
-
-    return pixel_pose
-
 CAMERAS = [
     'front',
     'overhead',
@@ -200,7 +187,6 @@ def create_labels_v3(demo: Demo):
 
         images = [getattr(start_obs, camera + '_rgb') for camera in CAMERAS]
         extrinsics = [start_obs.misc[camera + '_camera_extrinsics'] for camera in CAMERAS]
-        camera_rotation_matrices = [e[:3, :3] for e in extrinsics]
         intrinsics = [start_obs.misc[camera + '_camera_intrinsics'] for camera in CAMERAS]
 
         pixel_targets = [
@@ -208,6 +194,7 @@ def create_labels_v3(demo: Demo):
             for extrinsic, intrinsic in zip(extrinsics, intrinsics)
         ]
         # quaternions normalized to each camera
+        camera_rotation_matrices = [e[:3, :3] for e in extrinsics]
         quaternion_targets = [
             Q.rotation_matrix_to_quaternion(rotation_matrix.T @ target_rotation_matrix)
             for rotation_matrix in camera_rotation_matrices
