@@ -168,7 +168,7 @@ CAMERAS = [
 ]
 
 # v3: uses arbitrary camera matrices
-def create_labels_v3(demo: Demo):
+def create_labels_v3(demo: Demo, scale_images=True):
     keypoints = get_keypoint_observation_indexes(demo)
 
     assert keypoints[0] != 0, "Start position is not a keypoint."
@@ -193,25 +193,46 @@ def create_labels_v3(demo: Demo):
             make_projection(extrinsic, intrinsic, target_pos)
             for extrinsic, intrinsic in zip(extrinsics, intrinsics)
         ]
-        # quaternions normalized to each camera
+        
+        if scale_images:
+            # Scale positions and intrinsic matrices.
+            scale_factor = (224 / 128)
+            images = [scale_image(image) for image in images]
+            positions = [pos * scale_factor for pos in pixel_targets]
+            intrinsics = [
+                np.array([
+                    [intrinsic[0, 0] * scale_factor, 0, intrinsic[0, 2] * scale_factor],
+                    [0, intrinsic[1, 1] * scale_factor, intrinsic[1, 2] * scale_factor],
+                    [0, 0, 1]
+                ])
+                for intrinsic in intrinsics
+            ]
+        
+        # Normalize quaternions to each camera, by inverting the camera matrix and applying it to the rotation matrix.
         camera_rotation_matrices = [e[:3, :3] for e in extrinsics]
         quaternion_targets = [
             Q.rotation_matrix_to_quaternion(rotation_matrix.T @ target_rotation_matrix)
             for rotation_matrix in camera_rotation_matrices
         ]
 
-        tuples.append((images, pixel_targets, quaternion_targets, {'start_obs': start_obs, 'target_obs': target_obs, 'extrinsics': extrinsics, 'intrinsics': intrinsics}))
+        tuples.append((
+            images,
+            pixel_targets,
+            quaternion_targets,
+            {'start_obs': start_obs, 'target_obs': target_obs, 'extrinsics': extrinsics, 'intrinsics': intrinsics}
+        ))
 
         previous_pos = keypoint
 
     return tuples
 
-def prepare_image(image: np.ndarray):
+def scale_image(image: np.ndarray):
     pil_img = PIL.Image.fromarray(image)
     pil_img = pil_img.resize((224, 224), resample=PIL.Image.BILINEAR)
-    image = np.array(pil_img)
-    tensor = torch.tensor(image/255.0).permute(2, 0, 1)
-    return tensor
+    return np.array(pil_img)
+
+def image_to_tensor(image: np.ndarray, device):
+    return torch.tensor(image/255.0, device=device).permute(2, 0, 1)
 
 def create_torch_dataset_v3(demos, device):
     images = []
@@ -219,17 +240,14 @@ def create_torch_dataset_v3(demos, device):
     quats = []
 
     for demo in demos:
-        for label in create_labels_v3(demo):
+        for label in create_labels_v3(demo, scale_images=True):
             images_ = label[0]
             positions_ = label[1]
             quats_ = label[2]
             # extra metadata in label[3]
 
-            assert images_[0].shape == (128, 128, 3), "Unexpected image shape."
-
-            # Rescale images to 224.
-            images.extend([prepare_image(image) for image in images_])
-            positions.extend([torch.tensor(pos, device=device) * (224/128) for pos in positions_])
+            images.extend([image_to_tensor(image, device=device) for image in images_])
+            positions.extend([torch.tensor(pos, device=device) for pos in positions_])
             quats.extend([torch.tensor(quat, device=device) for quat in quats_])
 
     images = torch.stack(images)
