@@ -192,17 +192,11 @@ def create_labels_v3(demo: Demo, scale_images=True):
         images = [getattr(start_obs, camera + '_rgb') for camera in CAMERAS]
         extrinsics = [start_obs.misc[camera + '_camera_extrinsics'] for camera in CAMERAS]
         intrinsics = [start_obs.misc[camera + '_camera_intrinsics'] for camera in CAMERAS]
-
-        pixel_targets = np.stack([
-            make_projection(extrinsic, intrinsic, target_pos)
-            for extrinsic, intrinsic in zip(extrinsics, intrinsics)
-        ])
         
         if scale_images:
-            # Scale positions and intrinsic matrices.
+            # Scale intrinsic matrices.
             scale_factor = (224 / 128)
             images = [scale_image(image) for image in images]
-            positions = [pos * scale_factor for pos in pixel_targets]
             intrinsics = [
                 np.array([
                     [intrinsic[0, 0] * scale_factor, 0, intrinsic[0, 2] * scale_factor],
@@ -211,6 +205,11 @@ def create_labels_v3(demo: Demo, scale_images=True):
                 ])
                 for intrinsic in intrinsics
             ]
+
+        pixel_targets = np.stack([
+            make_projection(extrinsic, intrinsic, target_pos)
+            for extrinsic, intrinsic in zip(extrinsics, intrinsics)
+        ])
         
         # Normalize quaternions to each camera, by inverting the camera matrix and applying it to the rotation matrix.
         camera_rotation_matrices = [e[:3, :3] for e in extrinsics]
