@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 SCENE_BOUNDS = [
     -0.3,
@@ -9,6 +10,11 @@ SCENE_BOUNDS = [
     1.6,
 ]
 # [x_min, y_min, z_min, x_max, y_max, z_max] - the metric volume to be voxelized
+ORIGIN = (
+    (SCENE_BOUNDS[0] + SCENE_BOUNDS[3]) / 2,
+    (SCENE_BOUNDS[1] + SCENE_BOUNDS[4]) / 2,
+    (SCENE_BOUNDS[2] + SCENE_BOUNDS[5]) / 2,
+)
 
 def get_in_bounds_mask(point_cloud, scene_bounds):
     xmin, ymin, zmin, xmax, ymax, zmax = scene_bounds
@@ -27,8 +33,9 @@ class VoxelRenderer:
         device,
     ):
         self.scene_bounds = scene_bounds
-        self.mins = torch.tensor(self.scene_bounds[:3], device=device)
-        self.maxs = torch.tensor(self.scene_bounds[3:], device=device)
+        mins = torch.tensor(self.scene_bounds[:3], device=device)
+        maxs = torch.tensor(self.scene_bounds[3:], device=device)
+        self.origin = (mins + maxs) / 2
         self.voxel_size = voxel_size
         self.background_color = background_color
         self.device = device
@@ -36,7 +43,7 @@ class VoxelRenderer:
     def _discretize_point(self, xyz: torch.Tensor):
         return (
             # voxel_size represents a camera intrinsic matrix
-            self.voxel_size * (xyz - self.mins)
+            self.voxel_size * (0.5 + xyz - self.origin)
             # assume coordinates follow the same aspect ratio
             # / (self.maxs - self.mins) # scale
         ).to(torch.long) # discretize
@@ -44,7 +51,7 @@ class VoxelRenderer:
     def point_location_on_images(self, xyz: torch.Tensor):
         x, y, z = self._discretize_point(xyz)
         # in (x, y) order.
-        return ((y.item(), z.item()), (x.item(), z.item()), (x.item(), y.item()))
+        return ((y.item(), self.voxel_size - z.item()), (x.item(), self.voxel_size - z.item()), (x.item(), y.item()))
 
     def convert_2d_to_3d(self, zy: torch.Tensor, zx: torch.Tensor, xy: torch.Tensor):
         d, h = zy.shape
@@ -80,6 +87,9 @@ class VoxelRenderer:
             color_slice = color_3d[x, :, :].permute(1, 0, 2)
 
             yz_image = yz_image * (1 - mask_slice) + color_slice
+
+        # flip yz (because we flip z in the camera matrix)
+        yz_image = yz_image.flip(dims=(0,))
             
         xz_image = torch.ones((z_size, x_size, 3), dtype=color_3d.dtype, device=self.device)
         xz_image[:] = self.background_color
@@ -89,6 +99,9 @@ class VoxelRenderer:
             color_slice = color_3d[:, y, :].permute(1, 0, 2)
 
             xz_image = xz_image * (1 - mask_slice) + color_slice
+
+        # flip xz (because we flip z in the camera matrix)
+        xz_image = xz_image.flip(dims=(0,))
         
         xy_image = torch.ones((y_size, x_size, 3), dtype=color_3d.dtype, device=self.device)
         xy_image[:] = self.background_color
@@ -107,3 +120,64 @@ class VoxelRenderer:
     
     def __call__(self, point_cloud: torch.Tensor, color: torch.Tensor):
         return self.render_point_cloud(point_cloud, color)
+    
+    def get_camera_matrices(self):
+        # Create vector pointing to origin.
+        # See https://learnopengl.com/Getting-started/Camera.
+        results = []
+        origin = self.origin.cpu().numpy()
+        for camera_id in ['yz', 'xz', 'xy']:
+            if camera_id == 'xy':
+                backward = np.array([0, 0, 1])
+                right = np.array([1, 0, 0])
+                up = np.cross(backward, right) # [0, 1, 0]
+
+                """
+                100
+                010
+                001
+                """
+                
+                R = np.array([
+                    right,
+                    up,
+                    backward,
+                ]).T
+                T = (backward + origin)
+            elif camera_id == 'xz':
+                backward = np.array([0, 1, 0])
+                right = np.array([1, 0, 0])
+                up = np.cross(backward, right)
+                
+                R = np.array([
+                    right,
+                    up,
+                    backward,
+                ]).T
+                T = (backward + origin)
+            elif camera_id == 'yz':
+                backward = np.array([-1, 0, 0])
+                right = np.array([0, 1, 0])
+                up = np.cross(backward, right)
+                
+                R = np.array([
+                    right,
+                    up,
+                    backward,
+                ]).T
+                T = (backward + origin)
+            
+            extrinsic = np.eye(4)
+            extrinsic[:3, :3] = R
+            extrinsic[:3, 3] = T
+
+            image_size = 224
+            intrinsic = np.array([
+                [image_size, 0, image_size / 2],
+                [0, image_size, image_size / 2],
+                [0, 0, 1]
+            ])
+
+            results.append((extrinsic, intrinsic))
+
+        return results

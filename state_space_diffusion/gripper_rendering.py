@@ -130,8 +130,6 @@ def render_virtual_plan(gripper_matrix: np.ndarray, origin, points, colors, grip
     point_cloud = pyrender.Mesh.from_points(points, colors=colors)
     scene.add(point_cloud)
 
-    # Width and height are inversely proportional to xmag and ymag
-    images = [xy_image, xz_image, yz_image]
     for i, camera_id in enumerate(['xy', 'xz', 'yz']):
         # Create a camera, add it to the scene, and set the main
         # camera node (in place).

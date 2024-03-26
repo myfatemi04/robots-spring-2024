@@ -1,15 +1,24 @@
 import numpy as np
 
-def make_projection(extrinsic, intrinsic, points):
+def make_projection(extrinsic, intrinsic, points, orthographic=False):
     camera_translation = extrinsic[:3, 3]
     camera_rotation_matrix = extrinsic[:3, :3]
 
     # [B, 3] -> ([3, 3] @ [3, B] = [3, B]).T -> [B, 3]
     pose = (camera_rotation_matrix.T @ (points - camera_translation).T).T
+
+    if orthographic:
+        # get rid of z (normalize so we can use the translation vector)
+        pose[..., 2] = 1
+
     # [B, 3] -> ([3, 3] @ [3, B] = [3, B]).T -> [B, 3]
     pixel_pose_homogeneous = (intrinsic @ pose.T).T
-    # Keep the final dimension for broadcasting.
-    pixel_pose = pixel_pose_homogeneous[..., :2] / pixel_pose_homogeneous[..., [2]]
+
+    # If we do a projection, we divide by the homogeneous coordinate.
+    if not orthographic:
+        pixel_pose = pixel_pose_homogeneous[..., :2] / pixel_pose_homogeneous[..., [2]]
+    else:
+        pixel_pose = pixel_pose_homogeneous[..., :2]
 
     return pixel_pose
 
