@@ -278,6 +278,7 @@ def create_labels_v4(demo: Demo, scale_images=True, device='cuda'):
     virtual_cameras_tuples = []
 
     renderer = VoxelRenderer(SCENE_BOUNDS, 224, torch.tensor([0, 0, 0], device=device), device)
+    virtual_camera_matrices = renderer.get_camera_matrices()
 
     for keypoint in keypoints:
         # We are predicting KEYPOINT based on our observation at PREVIOUS_POS.
@@ -321,7 +322,7 @@ def create_labels_v4(demo: Demo, scale_images=True, device='cuda'):
             images,
             pixel_targets,
             quaternion_targets,
-            {'start_obs': start_obs, 'target_obs': target_obs, 'extrinsics': extrinsics, 'intrinsics': intrinsics}
+            {'start_obs': start_obs, 'target_obs': target_obs, 'extrinsics': extrinsics, 'intrinsics': intrinsics, 'projection_types': ['perspective'] * len(extrinsics)}
         ))
 
         ### Virtual Views ###
@@ -335,33 +336,47 @@ def create_labels_v4(demo: Demo, scale_images=True, device='cuda'):
         # x image: axes are (+y, +z)
         # y image: axes are (+x, +z)
         # z image: axes are (+x, +y)
-        (yz_image, xz_image, xy_image) = renderer(pcd, color)
-
-        (yz_pos, xz_pos, xy_pos) = renderer.point_location_on_images(torch.tensor(target_pos, device=device))
+        virtual_images = list(renderer(pcd, color))
+        virtual_image_pixel_targets = list(renderer.point_location_on_images(torch.tensor(target_pos, device=device)))
+        virtual_rotation_matrices = [extrinsic[:3, :3] for extrinsic, intrinsic in virtual_camera_matrices]
+        virtual_image_quaternion_targets = [
+            Q.rotation_matrix_to_quaternion(rotation_matrix.T @ target_rotation_matrix)
+            for rotation_matrix in virtual_rotation_matrices
+        ]
         
-        yz_quat = Q.compose_quaternions(Q.ROTATE_WORLD_QUATERNION_TO_CAMERA_QUATERNION['yz'], target_rotation_matrix)
-        xz_quat = Q.compose_quaternions(Q.ROTATE_WORLD_QUATERNION_TO_CAMERA_QUATERNION['xz'], target_rotation_matrix)
-        xy_quat = Q.compose_quaternions(Q.ROTATE_WORLD_QUATERNION_TO_CAMERA_QUATERNION['xy'], target_rotation_matrix)
+        virtual_extrinsics = [e for e, i in virtual_camera_matrices]
+        virtual_intrinsics = [i for e, i in virtual_camera_matrices]
 
-        ### TODO. ###
         virtual_cameras_tuples.append((
-            images,
-            pixel_targets,
-            quaternion_targets,
-            {'start_obs': start_obs, 'target_obs': target_obs, 'extrinsics': extrinsics, 'intrinsics': intrinsics}
+            [(image * 255).cpu().numpy().astype(np.uint8) for image in virtual_images],
+            virtual_image_pixel_targets,
+            virtual_image_quaternion_targets,
+            {
+                'start_obs': start_obs,
+                'target_obs': target_obs,
+                'extrinsics': virtual_extrinsics,
+                'intrinsics': virtual_intrinsics,
+                'projection_types': ['orthographic'] * len(extrinsics)
+            }
         ))
 
         previous_pos = keypoint
 
-    return original_cameras_tuples
+    return original_cameras_tuples, virtual_cameras_tuples
 
-def create_torch_dataset_v4(demos, device):
+def create_torch_dataset_v4(demos, device, include_original=True, include_virtual=False):
     images = []
     positions = []
     quats = []
 
     for demo in demos:
-        for label in create_labels_v3(demo, scale_images=True):
+        original_tuples, virtual_tuples = create_labels_v4(demo, scale_images=True)
+        tuples = []
+        if include_original:
+            tuples += original_tuples
+        if include_virtual:
+            tuples += virtual_tuples
+        for label in tuples:
             images_ = label[0]
             positions_ = label[1]
             quats_ = label[2]

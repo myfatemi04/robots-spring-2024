@@ -12,7 +12,16 @@ def clip_to_scene_bounds(pos, min_bounds, max_bounds):
     pos = torch.min(pos, min_bounds)
     return pos
 
-def solve_multiview_ivp(start_point, score_maps, quat_maps, extrinsics, intrinsics, step_sizes, scene_bounds):
+def solve_multiview_ivp(
+    start_point,
+    score_maps,
+    quat_maps,
+    extrinsics,
+    intrinsics,
+    projection_types,
+    step_sizes,
+    scene_bounds,
+):
     device = start_point.device
     pos = start_point
 
@@ -35,8 +44,13 @@ def solve_multiview_ivp(start_point, score_maps, quat_maps, extrinsics, intrinsi
 
         # Assumes the intrinsics are correctly rescaled according to image resizing.
         pixel_locations = [
-            make_projection(extrinsic, intrinsic, pos.cpu().numpy())# * (224/128)
-            for extrinsic, intrinsic in zip(extrinsics, intrinsics)
+            make_projection(
+                extrinsic,
+                intrinsic,
+                pos.cpu().numpy(),
+                projection_type == 'orthographic'
+            )
+            for extrinsic, intrinsic, projection_type in zip(extrinsics, intrinsics, projection_types)
         ]
         # Find score function from each view. Start from 2D predictions, project to 3D.
         scores_2d = [
@@ -75,6 +89,9 @@ def solve_multiview_ivp(start_point, score_maps, quat_maps, extrinsics, intrinsi
         quat = np.mean(quats[:1], axis=0)
 
         score = torch.stack(scores_3d).mean(dim=0)
+        
+        # print("===")
+        # print(np.array([s3d.cpu().numpy() for s3d in scores_3d]))
 
         # Take a step in the direction of the score
         step_size = step_sizes[step]
@@ -133,7 +150,7 @@ SCENE_BOUNDS = [
     1.6,
 ]
 
-def sample_keypoint(model, images, extrinsics, intrinsics, start_point, device='cuda'):
+def sample_keypoint(model, images, extrinsics, intrinsics, projection_types, start_point, device='cuda'):
     """
     Returns the history of 3D positions and quaternions from the sampling process.
     Also returns the score and quaternion maps used for sampling.
@@ -153,6 +170,7 @@ def sample_keypoint(model, images, extrinsics, intrinsics, start_point, device='
         quat_maps,
         extrinsics,
         intrinsics,
+        projection_types,
         step_sizes,
         scene_bounds=SCENE_BOUNDS,
     )

@@ -25,7 +25,7 @@ def make_projection(extrinsic, intrinsic, points, orthographic=False):
 def score_to_3d_deflection(score: np.ndarray, extrinsic: np.ndarray, intrinsic: np.ndarray):
     # create a 3D deflection vector.
     # divide by focal lengths.
-    score = np.stack([score[..., 0] / intrinsic[0, 0] * 224, score[..., 1] / intrinsic[1, 1] * 224], axis=-1)
+    score = np.stack([score[..., 0] / intrinsic[0, 0], score[..., 1] / intrinsic[1, 1]], axis=-1)
     # score[...] = 0
     
     # append a z=0 dimension

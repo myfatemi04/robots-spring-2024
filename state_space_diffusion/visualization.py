@@ -57,11 +57,16 @@ def visualize_2d_sampling_trajectory(
         
         plt.subplot(1, len(images), i + 1)
         plt.title(name + " view")
-        plt.imshow(image, origin="lower")
+        plt.imshow(image)
         # plt.xlim(0, 224)
         # plt.ylim(224, 0)
         
-        plt.scatter(target_location_2d[0], target_location_2d[1], c=[(1.0, 0.5, 0.0)], label='Target position')
+        plt.scatter(
+            target_location_2d[0],
+            target_location_2d[1],
+            c=[(1.0, 0.5, 0.0)],
+            label='Target position'
+        )
         
         # flip score function because of the flipped y axis (results from the ylim stuff, not a
         # matrix projection bug i think)
@@ -69,14 +74,14 @@ def visualize_2d_sampling_trajectory(
         # true_score_map[..., 1] *= -1
         
         # Visualize the sampling trajectory.
-        # trajectory_2d = trajectory_2d.cpu().numpy()
-        # plt.scatter(
-        #     trajectory_2d[..., 0],
-        #     trajectory_2d[..., 1],
-        #     label="Sampling trajectory",
-        #     c=np.arange(len(trajectory_2d)),
-        #     cmap="viridis",
-        # )
+        trajectory_2d = trajectory_2d.cpu().numpy()
+        plt.scatter(
+            trajectory_2d[..., 0],
+            trajectory_2d[..., 1],
+            label="Sampling trajectory",
+            c=np.arange(len(trajectory_2d)),
+            cmap="viridis",
+        )
         
         # Render the score function as a vector field.
         smc = score_map_coordinates.view(-1, 2)
@@ -86,24 +91,46 @@ def visualize_2d_sampling_trajectory(
         psm = NP(psm)
         tsm = NP(tsm)
         arrow_scale = 0.1
-        plt.quiver(
-            smc[:, 0],
-            smc[:, 1],
-            psm[:, 0] * arrow_scale,
-            psm[:, 1] * arrow_scale,
-            # scale=1,
-            color='r',
-            label='Predicted Score'
-        )
-        plt.quiver(
-            smc[:, 0],
-            smc[:, 1],
-            tsm[:, 0] * arrow_scale,
-            tsm[:, 1] * arrow_scale,
-            # scale=1,
-            color='b',
-            label='True Score'
-        )
+        
+        use_quiver = True
+        if use_quiver:
+            plt.quiver(
+                smc[:, 0],
+                smc[:, 1],
+                psm[:, 0] * arrow_scale,
+                psm[:, 1] * arrow_scale * -1, # fix bug during imshow
+                # scale=1,
+                color='r',
+                label='Predicted Score'
+            )
+            plt.quiver(
+                smc[:, 0],
+                smc[:, 1],
+                tsm[:, 0] * arrow_scale,
+                tsm[:, 1] * arrow_scale * -1, # fix bug during imshow
+                # scale=1,
+                color='b',
+                label='True Score'
+            )
+        # else:
+            # plt.quiver(
+            #     smc[:, 0],
+            #     smc[:, 1],
+            #     psm[:, 0] * arrow_scale,
+            #     psm[:, 1] * arrow_scale * -1, # fix bug during imshow
+            #     # scale=1,
+            #     color='r',
+            #     label='Predicted Score'
+            # )
+            # plt.quiver(
+            #     smc[:, 0],
+            #     smc[:, 1],
+            #     tsm[:, 0] * arrow_scale,
+            #     tsm[:, 1] * arrow_scale * -1, # fix bug during imshow
+            #     # scale=1,
+            #     color='b',
+            #     label='True Score'
+            # )
         
         # Visualize the quaternion
         # show_quaternion = False
@@ -114,9 +141,6 @@ def visualize_2d_sampling_trajectory(
         #         draw_rotation_matrix(trajectory_2d[j - 1], rotation_matrix)
             
         # plt.legend()
-
-def visualize_score_map_3d(score_map_2d):
-    pass
 
 def evaluate(
     demo,
