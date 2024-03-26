@@ -35,7 +35,7 @@ def solve_multiview_ivp(start_point, score_maps, quat_maps, extrinsics, intrinsi
 
         # Assumes the intrinsics are correctly rescaled according to image resizing.
         pixel_locations = [
-            make_projection(extrinsic, intrinsic, pos.cpu().numpy())
+            make_projection(extrinsic, intrinsic, pos.cpu().numpy())# * (224/128)
             for extrinsic, intrinsic in zip(extrinsics, intrinsics)
         ]
         # Find score function from each view. Start from 2D predictions, project to 3D.
@@ -95,27 +95,25 @@ def solve_multiview_ivp(start_point, score_maps, quat_maps, extrinsics, intrinsi
     return history_3d, history_quats, history_2d
 
 @torch.no_grad()
-def infer(model, clip_processor, images, device):
+def infer(model, clip_processor, images, device, image_size=224, grid_size=14):
     """
     Returns score maps (in pixel coordinates) and quaternion maps.
     """
     
     pixel_values = clip_processor(
         images=images,
-        return_tensors="pt",
-        do_rescale=False
+        return_tensors="pt"
     ).to(device=device).pixel_values # type: ignore
 
     # langevin dynamics?
     # first, calculate score function. we permute to make axes [batch, x, y, 6]
-    with torch.no_grad():
-        maps = model(pixel_values).view(-1, 14, 14, 6).permute(0, 2, 1, 3)
-        score_maps_unscaled = maps[..., 0:2].contiguous()
-        quat_maps = maps[..., 2:6].contiguous()
+    maps = model(pixel_values).view(-1, grid_size, grid_size, 6).permute(0, 2, 1, 3)
+    pred_direction = maps[..., 0:2].contiguous()
+    pred_quat = maps[..., 2:6].contiguous()
         
-    score_maps = score_maps_unscaled * (224/2)
+    pred_direction_px = pred_direction * (224/2)
     
-    return (score_maps, quat_maps)
+    return (pred_direction_px, pred_quat)
 
 __clip_processor = None
 def __get_clip_processor():

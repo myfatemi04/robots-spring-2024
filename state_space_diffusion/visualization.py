@@ -1,7 +1,9 @@
 import torch
 import matplotlib.pyplot as plt
+import numpy as np
 
 from demo_to_state_action_pairs import create_labels_v3
+import quaternions as Q
 
 def draw_rotation_matrix(position, rotation_matrix):
     for (axis, color) in zip(rotation_matrix, 'rgb'):
@@ -14,7 +16,7 @@ def visualize_2d_score_prediction(image, sample_grid, predicted_direction_px, tr
     if type(image) == torch.Tensor:
         image = image.detach().cpu().numpy().transpose(1, 2, 0)
     
-    plt.imshow(image)
+    plt.imshow(image, origin="lower")
     plt.quiver(
         NP(sample_grid[:, 0]),
         NP(sample_grid[:, 1]),
@@ -32,53 +34,86 @@ def visualize_2d_score_prediction(image, sample_grid, predicted_direction_px, tr
         label='True'
     )
 
-def visualize_2d_sampling_trajectory(images, predicted_score_maps, true_score_maps, history_2d, camera_names):
+def visualize_2d_sampling_trajectory(
+    images,
+    score_map_coordinates,
+    predicted_score_maps,
+    true_score_maps,
+    history_2d,
+    target_locations_2d,
+    camera_names):
     # Plotting the score function in 2D.
-    for i, (name, image, trajectory_2d, predicted_score_map, true_score_map) in enumerate(zip(
+    for i, (name, image, trajectory_2d, predicted_score_map, true_score_map, target_location_2d) in enumerate(zip(
         camera_names,
         images,
-        zip(*history_2d),
+        history_2d.permute(1, 0, 2),
         predicted_score_maps,
-        true_score_maps
+        true_score_maps,
+        target_locations_2d.detach().cpu().numpy(),
     )):
-        position = torch.tensor(position, device=device)
-        image = image.detach().cpu().numpy().transpose(1, 2, 0)
-
+        # convert image to numpy
+        if type(image) == torch.Tensor:
+            image = image.detach().cpu().numpy().transpose(1, 2, 0)
+        
         plt.subplot(1, len(images), i + 1)
         plt.title(name + " view")
-        plt.imshow(image)
-        plt.xlim(0, 224)
-        plt.ylim(224, 0)
+        plt.imshow(image, origin="lower")
+        # plt.xlim(0, 224)
+        # plt.ylim(224, 0)
         
-        # flip score function because of the flipped y axis (results from the ylim stuff)
-        predicted_score_map[..., 1] *= -1
-        true_score_map[..., 1] *= -1
+        plt.scatter(target_location_2d[0], target_location_2d[1], c=[(1.0, 0.5, 0.0)], label='Target position')
+        
+        # flip score function because of the flipped y axis (results from the ylim stuff, not a
+        # matrix projection bug i think)
+        # predicted_score_map[..., 1] *= -1
+        # true_score_map[..., 1] *= -1
         
         # Visualize the sampling trajectory.
-        plt.scatter(
-            trajectory_2d.numpy()[..., 0],
-            trajectory_2d.numpy()[..., 1],
-            label="Sampling trajectory",
-            c=np.arange(len(history_)),
-            cmap="viridis",
+        # trajectory_2d = trajectory_2d.cpu().numpy()
+        # plt.scatter(
+        #     trajectory_2d[..., 0],
+        #     trajectory_2d[..., 1],
+        #     label="Sampling trajectory",
+        #     c=np.arange(len(trajectory_2d)),
+        #     cmap="viridis",
+        # )
+        
+        # Render the score function as a vector field.
+        smc = score_map_coordinates.view(-1, 2)
+        psm = predicted_score_map.view(-1, 2)
+        tsm = true_score_map.view(-1, 2)
+        smc = NP(smc)
+        psm = NP(psm)
+        tsm = NP(tsm)
+        arrow_scale = 0.1
+        plt.quiver(
+            smc[:, 0],
+            smc[:, 1],
+            psm[:, 0] * arrow_scale,
+            psm[:, 1] * arrow_scale,
+            # scale=1,
+            color='r',
+            label='Predicted Score'
+        )
+        plt.quiver(
+            smc[:, 0],
+            smc[:, 1],
+            tsm[:, 0] * arrow_scale,
+            tsm[:, 1] * arrow_scale,
+            # scale=1,
+            color='b',
+            label='True Score'
         )
         
-        # Project from 2D memory layout to serial layout
-        scaled_arrows(
-            image,
-            pixel_scaled_positions[0].view(-1, 2),
-            score.view(-1, 2),
-            true_direction[0].view(-1, 2),
-        )
         # Visualize the quaternion
-        show_quaternion = False
-        if show_quaternion:
-            for j in range(1, len(history_quats)):
-                # Take true quaternion and invert camera rotation.
-                rotation_matrix = extrinsics[i][:3, :3].T @ Q.quaternion_to_rotation_matrix(history_quats[j])
-                draw_rotation_matrix(trajectory_2d[j - 1], rotation_matrix)
+        # show_quaternion = False
+        # if show_quaternion:
+        #     for j in range(1, len(history_quats)):
+        #         # Take true quaternion and invert camera rotation.
+        #         rotation_matrix = extrinsics[i][:3, :3].T @ Q.quaternion_to_rotation_matrix(history_quats[j])
+        #         draw_rotation_matrix(trajectory_2d[j - 1], rotation_matrix)
             
-        plt.legend()
+        # plt.legend()
 
 def visualize_score_map_3d(score_map_2d):
     pass

@@ -169,6 +169,10 @@ CAMERAS = [
 
 # v3: uses arbitrary camera matrices
 def create_labels_v3(demo: Demo, scale_images=True):
+    """
+    This is still in Numpy land.
+    """
+    
     keypoints = get_keypoint_observation_indexes(demo)
 
     assert keypoints[0] != 0, "Start position is not a keypoint."
@@ -189,10 +193,10 @@ def create_labels_v3(demo: Demo, scale_images=True):
         extrinsics = [start_obs.misc[camera + '_camera_extrinsics'] for camera in CAMERAS]
         intrinsics = [start_obs.misc[camera + '_camera_intrinsics'] for camera in CAMERAS]
 
-        pixel_targets = [
+        pixel_targets = np.stack([
             make_projection(extrinsic, intrinsic, target_pos)
             for extrinsic, intrinsic in zip(extrinsics, intrinsics)
-        ]
+        ])
         
         if scale_images:
             # Scale positions and intrinsic matrices.
@@ -203,7 +207,7 @@ def create_labels_v3(demo: Demo, scale_images=True):
                 np.array([
                     [intrinsic[0, 0] * scale_factor, 0, intrinsic[0, 2] * scale_factor],
                     [0, intrinsic[1, 1] * scale_factor, intrinsic[1, 2] * scale_factor],
-                    [0, 0, 1]
+                    [0, 0, intrinsic[2, 2]]
                 ])
                 for intrinsic in intrinsics
             ]
