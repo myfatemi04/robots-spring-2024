@@ -81,7 +81,7 @@ def solve_multiview_ivp(
         ]
         quats = [
             Q.compose_quaternions(
-                Q.invert_quaternion(Q.rotation_matrix_to_quaternion(extrinsic[:3, :3])),
+                Q.rotation_matrix_to_quaternion(extrinsic[:3, :3]),
                 quat/np.linalg.norm(quat, axis=-1, keepdims=True)
             )
             for extrinsic, quat in zip(extrinsics, quats_unrotated)

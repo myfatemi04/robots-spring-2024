@@ -287,6 +287,7 @@ def create_labels_v4(demo: Demo, scale_images=True, device='cuda'):
         target_pos = target_obs.gripper_pose[:3]
         # We use this quaternion, as it is in world frame (instead of gripper_pose[3:])
         target_rotation_matrix = target_obs.gripper_matrix[:3, :3]
+        target_quaternion = Q.rotation_matrix_to_quaternion(target_rotation_matrix)
 
         ### Original Cameras ###
         images = [getattr(start_obs, camera + '_rgb') for camera in CAMERAS]
@@ -322,7 +323,14 @@ def create_labels_v4(demo: Demo, scale_images=True, device='cuda'):
             images,
             pixel_targets,
             quaternion_targets,
-            {'start_obs': start_obs, 'target_obs': target_obs, 'extrinsics': extrinsics, 'intrinsics': intrinsics, 'projection_types': ['perspective'] * len(extrinsics)}
+            {
+                'start_obs': start_obs,
+                'target_obs': target_obs,
+                'extrinsics': extrinsics,
+                'intrinsics': intrinsics,
+                'projection_types': ['perspective'] * len(extrinsics),
+                'target_quaternion': target_quaternion,
+            }
         ))
 
         ### Virtual Views ###
@@ -356,7 +364,8 @@ def create_labels_v4(demo: Demo, scale_images=True, device='cuda'):
                 'target_obs': target_obs,
                 'extrinsics': virtual_extrinsics,
                 'intrinsics': virtual_intrinsics,
-                'projection_types': ['orthographic'] * len(extrinsics)
+                'projection_types': ['orthographic'] * len(extrinsics),
+                'target_quaternion': target_quaternion,
             }
         ))
 

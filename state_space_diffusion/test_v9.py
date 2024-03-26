@@ -86,8 +86,8 @@ def train(demos, epochs=10, model=None, include_original=True, include_virtual=F
             assert not torch.any(distances.isnan()), "distances is nan"
             assert not torch.any(distances < 0), "distance < 0"
 
-            quat_loss_coeff = 10
-            loss = score_loss # + quat_loss_coeff * quat_loss
+            quat_loss_coeff = 100
+            loss = score_loss + quat_loss_coeff * quat_loss
 
             optim.zero_grad()
             loss.backward()

@@ -6,8 +6,16 @@ from demo_to_state_action_pairs import create_labels_v3
 import quaternions as Q
 
 def draw_rotation_matrix(position, rotation_matrix):
-    for (axis, color) in zip(rotation_matrix, 'rgb'):
-        plt.quiver(position[0], position[1], axis[0], axis[1], scale=10, color=color, alpha=0.5)
+    for (axis, color) in zip(rotation_matrix.T, 'rgb'):
+        plt.quiver(
+            position[0],
+            position[1],
+            axis[0],
+            axis[1] * -1,
+            scale=10,
+            color=color,
+            alpha=0.5,
+        )
 
 
 NP = lambda x: x.detach().cpu().numpy()
@@ -40,6 +48,9 @@ def visualize_2d_sampling_trajectory(
     predicted_score_maps,
     true_score_maps,
     history_2d,
+    history_quats,
+    true_quat,
+    extrinsics,
     target_locations_2d,
     camera_names):
     # Plotting the score function in 2D.
@@ -133,14 +144,18 @@ def visualize_2d_sampling_trajectory(
             # )
         
         # Visualize the quaternion
-        # show_quaternion = False
-        # if show_quaternion:
-        #     for j in range(1, len(history_quats)):
-        #         # Take true quaternion and invert camera rotation.
-        #         rotation_matrix = extrinsics[i][:3, :3].T @ Q.quaternion_to_rotation_matrix(history_quats[j])
-        #         draw_rotation_matrix(trajectory_2d[j - 1], rotation_matrix)
+        show_quaternion = True
+        if show_quaternion:
+            for j in range(1, len(history_quats)):
+                # Take true quaternion and invert camera rotation.
+                rotation_matrix = extrinsics[i][:3, :3].T @ Q.quaternion_to_rotation_matrix(history_quats[j])
+                draw_rotation_matrix(trajectory_2d[j - 1], rotation_matrix)
+                
+            # Draw true quaternion
+            rotation_matrix = extrinsics[i][:3, :3].T @ Q.quaternion_to_rotation_matrix(true_quat)
+            draw_rotation_matrix(target_location_2d, rotation_matrix)
             
-        # plt.legend()
+        plt.legend()
 
 def evaluate(
     demo,
