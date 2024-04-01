@@ -57,8 +57,9 @@ def draw_set_of_marks(image, predictions):
         object_id_counter += 1
 
     # Save to PIL image.
-    fig = plt.gcf()
-    return Image.frombytes('RGB', fig.canvas.get_width_height(), fig.canvas.tostring_rgb())
+    # fig = plt.gcf()
+    # return Image.frombytes('RGB', fig.canvas.get_width_height(), fig.canvas.tostring_rgb())
+    plt.show()
 
 def detect(image, label):
     start = time.time()
@@ -81,15 +82,31 @@ def detect(image, label):
     end = time.time()
 
     print(f"Detection duration: {end - start:.2f}")
+    
+    predictions_2 = []
+    height_scale = image.width / image.height
+    for prediction in predictions:
+        box = prediction['box']
+        # Needed for OWL-ViT for some reason.
+        rescaled_prediction = {
+            'box': {
+                'xmin': box['xmin'],
+                'ymin': box['ymin'] * height_scale,
+                'xmax': box['xmax'],
+                'ymax': box['ymax'] * height_scale,
+            },
+            'score': prediction['score'],
+            'label': prediction['label'],
+        }
+        predictions_2.append(rescaled_prediction)
+    predictions = predictions_2
 
     boxes_xy = []
     for prediction in predictions:
         box = prediction['box']
         boxes_xy.append([box['xmin'], box['ymin'], box['xmax'], box['ymax']])
     boxes_xy = torch.tensor(boxes_xy).float()
-    # Needed for OWL-ViT for some reason.
-    boxes_xy[[1, 3]] *= (image.height / 1024)
-    box_sizes = (boxes_xy[3] - boxes_xy[1]) * (boxes_xy[2] - boxes_xy[0]) / (image.height * image.width)
+    box_sizes = (boxes_xy[:, 3] - boxes_xy[:, 1]) * (boxes_xy[:, 2] - boxes_xy[:, 0]) / (image.height * image.width)
 
     scores = torch.tensor([prediction['score'] for prediction in predictions])
 
@@ -98,4 +115,4 @@ def detect(image, label):
     # do not accept boxes that fill a whole quadrant of space
     keep = {i for i in keep if box_sizes[i] < 0.25}
 
-    return [prediction for (i, prediction) in predictions if i in keep]
+    return [prediction for (i, prediction) in enumerate(predictions) if i in keep]

@@ -221,3 +221,26 @@ class VisualPlanDiffuserV7(torch.nn.Module):
     def forward(self, pixel_values: torch.FloatTensor) -> torch.Tensor:
         return self.noise_decoder(self.tfmr(pixel_values).last_hidden_state[:, 1:, :])
 
+import copy
+
+# we add noise conditioning.
+class VisualPlanDiffuserV10(torch.nn.Module):
+    def __init__(self, clip: CLIPVisionModel, num_noise_levels: int):
+        super().__init__()
+
+        d_model = clip.config.hidden_size
+        
+        self.transformers = nn.ModuleList([copy.deepcopy(clip) for _ in range(num_noise_levels)])
+        
+        # 2 for translation (per noise level), 4 for quaternion [may put the quaternion part in another model]
+        self.noise_decoder = nn.Linear(d_model, 2 + 4)
+        self.num_noise_levels = num_noise_levels
+
+    def forward(self, pixel_values: torch.FloatTensor) -> torch.Tensor:
+        preds = []
+        for i in range(self.num_noise_levels):
+            pred = self.noise_decoder(self.transformers[i](pixel_values).last_hidden_state[:, 1:, :])
+            pred = pred.view(-1, 14, 14, 6).permute(0, 2, 1, 3)
+            preds.append(pred)
+            
+        return torch.stack(preds, dim=1)

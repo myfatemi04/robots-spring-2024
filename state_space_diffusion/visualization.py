@@ -52,7 +52,10 @@ def visualize_2d_sampling_trajectory(
     true_quat,
     extrinsics,
     target_locations_2d,
-    camera_names):
+    camera_names,
+    show_quaternion=False,
+    num_noise_levels=1,
+):
     # Plotting the score function in 2D.
     for i, (name, image, trajectory_2d, predicted_score_map, true_score_map, target_location_2d) in enumerate(zip(
         camera_names,
@@ -95,16 +98,15 @@ def visualize_2d_sampling_trajectory(
         )
         
         # Render the score function as a vector field.
-        smc = score_map_coordinates.view(-1, 2)
-        psm = predicted_score_map.view(-1, 2)
-        tsm = true_score_map.view(-1, 2)
-        smc = NP(smc)
-        psm = NP(psm)
-        tsm = NP(tsm)
-        arrow_scale = 0.1
-        
-        use_quiver = True
-        if use_quiver:
+        for sigma_index in range(num_noise_levels):
+            smc = score_map_coordinates.view(-1, 2)
+            # select the predicted score map for this particular noise level
+            psm = predicted_score_map[sigma_index].contiguous().view(-1, 2)
+            tsm = true_score_map.view(-1, 2)
+            smc = NP(smc)
+            psm = NP(psm)
+            tsm = NP(tsm)
+            arrow_scale = 0.1
             plt.quiver(
                 smc[:, 0],
                 smc[:, 1],
@@ -112,7 +114,8 @@ def visualize_2d_sampling_trajectory(
                 psm[:, 1] * arrow_scale * -1, # fix bug during imshow
                 # scale=1,
                 color='r',
-                label='Predicted Score'
+                # label='Predicted Score',
+                alpha=1/num_noise_levels,
             )
             plt.quiver(
                 smc[:, 0],
@@ -121,30 +124,11 @@ def visualize_2d_sampling_trajectory(
                 tsm[:, 1] * arrow_scale * -1, # fix bug during imshow
                 # scale=1,
                 color='b',
-                label='True Score'
+                # label='True Score',
+                alpha=1/num_noise_levels,
             )
-        # else:
-            # plt.quiver(
-            #     smc[:, 0],
-            #     smc[:, 1],
-            #     psm[:, 0] * arrow_scale,
-            #     psm[:, 1] * arrow_scale * -1, # fix bug during imshow
-            #     # scale=1,
-            #     color='r',
-            #     label='Predicted Score'
-            # )
-            # plt.quiver(
-            #     smc[:, 0],
-            #     smc[:, 1],
-            #     tsm[:, 0] * arrow_scale,
-            #     tsm[:, 1] * arrow_scale * -1, # fix bug during imshow
-            #     # scale=1,
-            #     color='b',
-            #     label='True Score'
-            # )
         
         # Visualize the quaternion
-        show_quaternion = True
         if show_quaternion:
             for j in range(1, len(history_quats)):
                 # Take true quaternion and invert camera rotation.
