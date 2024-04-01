@@ -2,15 +2,14 @@ import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pyk4a
 import PIL.Image as Image
-# import generate_plan
-
-sys.path.insert(0, "../")
-
-from camera import Camera
+import generate_plan
 
 def main():
+    import pyk4a
+    sys.path.insert(0, "../")
+    from camera import Camera
+    
     num_cameras = 1
     if pyk4a.connected_device_count() < num_cameras:
         print(f"Error: Not enough K4A devices connected (<{num_cameras}).")
@@ -40,5 +39,8 @@ def main():
 
     camera.close()
 
-if __name__ == '__main__':
-    main()
+# if __name__ == '__main__':
+#     main()
+
+image = Image.open("irl_capture.png")
+generate_plan(image, "put a block in the drawer")

@@ -162,7 +162,7 @@ def sample_keypoint(model, images, extrinsics, intrinsics, projection_types, sta
     score_maps, quat_maps = infer(model, __get_clip_processor(), images, device)
     
     # Use 25 inference steps.
-    step_sizes = torch.linspace(0.5, 0.1, 25)
+    step_sizes = torch.linspace(0.5, 0.5, 25)
         
     (history_3d, history_quaternions, history_2d_projections) = solve_multiview_ivp(
         start_point,
