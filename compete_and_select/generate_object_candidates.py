@@ -5,10 +5,16 @@ import matplotlib.pyplot as plt
 import torch
 import torchvision.ops as ops
 from PIL import Image
-from transformers import pipeline
 
-checkpoint = "google/owlv2-base-patch16-ensemble"
-detector = pipeline(model=checkpoint, task="zero-shot-object-detection", device="cuda")
+# Transformers 4.33 doesn't have OwlViT as a pipeline, but we can use it manually.
+# from transformers import pipeline
+
+# checkpoint = "google/owlv2-base-patch16-ensemble"
+# detector = pipeline(model=checkpoint, task="zero-shot-object-detection", device="cuda")
+from transformers import OwlViTProcessor, OwlViTForObjectDetection
+
+processor = OwlViTProcessor.from_pretrained("google/owlvit-base-patch32")
+model = OwlViTForObjectDetection.from_pretrained("google/owlvit-base-patch32")
 
 def draw_set_of_marks(image, predictions):
     plt.clf()
@@ -56,10 +62,22 @@ def draw_set_of_marks(image, predictions):
 
 def detect(image, label):
     start = time.time()
-    predictions = detector(
-        image,
-        candidate_labels=[label],
-    )
+    inputs = processor(text=[label], images=image, return_tensors="pt")
+    outputs = model(**inputs)
+
+    # Target image sizes (height, width) to rescale box predictions [batch_size, 2]
+    target_sizes = torch.Tensor([image.size[::-1]])
+    # Convert outputs (bounding boxes and class logits) to Pascal VOC format (xmin, ymin, xmax, ymax)
+    results = processor.post_process_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=0.1)
+    # Corresponds to texts[0], which is just label
+    results = results[0]
+    i = 0  # Retrieve predictions for the first image for the corresponding text queries
+    boxes, scores, labels = results["boxes"], results["scores"], results["labels"]
+    predictions = [{"box": box, "score": score, "label": label} for (box, score, label) in zip(boxes, scores, labels)]
+    # predictions = detector(
+    #     image,
+    #     candidate_labels=[label],
+    # )
     end = time.time()
 
     print(f"Detection duration: {end - start:.2f}")
