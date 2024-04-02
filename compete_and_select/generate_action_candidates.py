@@ -205,6 +205,8 @@ Plan:
     
     image = image.convert("RGB") # .resize((int(image.width * (512/image.height)), 512), Image.BICUBIC)
     detection = detect(image, object_)
+
+    print(detection)
     
     # Overlay this with the image.
     draw_set_of_marks(image, detection)

@@ -21,7 +21,8 @@ def main():
     camera = Camera(k4a_devices[0])
     cap = camera.capture()
 
-    # Get depth point cloud
+    # Get depth image. Look at the below URL.
+    # https://github.com/etiennedub/pyk4a/blob/master/pyk4a/transformation.py
     pcd_xyz = cap.depth_point_cloud.reshape(-1, 3)
     pcd_color = cap.transformed_color.reshape(-1, 4)[:, :-1][:, ::-1]
 
@@ -43,6 +44,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-# image = Image.open("irl_capture.png")
-# generate_action_candidates(image, "put a block in the drawer")

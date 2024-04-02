@@ -3,7 +3,8 @@ import sys
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image as Image
-import generate_plan
+from generate_action_candidates import generate_action_candidates
+
 
 def main():
     import pyk4a
@@ -29,18 +30,32 @@ def main():
     image_np = image_np[..., ::-1]
     image_np = np.ascontiguousarray(image_np)
 
+    # Get depth point cloud
+    pcd_xyz = cap.depth_point_cloud.reshape(-1, 3)
+    pcd_color = cap.transformed_color.reshape(-1, 4)[:, :-1][:, ::-1]
+
+    point_mask = pcd_xyz[:, -1] < 1000
+    pcd_xyz = pcd_xyz[point_mask]
+    pcd_color = pcd_color[point_mask]
+    skip_every = 5
+    pcd_xyz = pcd_xyz[::skip_every]
+    pcd_color = pcd_color[::skip_every]
+
+    ax = plt.figure().add_subplot(projection='3d')
+    ax.scatter(*pcd_xyz.T, c=pcd_color/255)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+    plt.show()
+
     image = Image.fromarray(image_np)
 
-    # generate_plan(image, "put a block in the drawer")
-
-    plt.title("Capture")
-    plt.imshow(image)
-    plt.show()
+    generate_action_candidates(image, "put a block in the drawer")
 
     camera.close()
 
-# if __name__ == '__main__':
-#     main()
+if __name__ == '__main__':
+    main()
 
-image = Image.open("irl_capture.png")
-generate_plan(image, "put a block in the drawer")
+# image = Image.open("irl_capture.png")
+# generate_action_candidates(image, "put a block in the drawer")
