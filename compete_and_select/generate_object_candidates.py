@@ -1,3 +1,4 @@
+import io
 import time
 
 import matplotlib.patches as patches
@@ -16,10 +17,10 @@ detector = pipeline(model=checkpoint, task="zero-shot-object-detection", device=
 # processor = Owlv2Processor.from_pretrained("google/owlv2-base-patch16-ensemble")
 # model = OwlViTForObjectDetection.from_pretrained("google/owlv2-base-patch16-ensemble").to("cuda")
 
-def draw_set_of_marks(image, predictions):
+def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
     plt.clf()
 
-    plt.title("Results from OWL-ViT")
+    # plt.title("Results from OWL-ViT")
     plt.imshow(image)
 
     object_id_counter = 1
@@ -47,7 +48,7 @@ def draw_set_of_marks(image, predictions):
         plt.text(
             text_x,
             text_y,
-            f"#{object_id_counter}",
+            f"#{object_id_counter}" if custom_labels is None else custom_labels[object_id_counter - 1],
             c='white',
             backgroundcolor=(0.1, 0.1, 0.1, 0.5),
             horizontalalignment=horizontalalignment
@@ -56,10 +57,21 @@ def draw_set_of_marks(image, predictions):
         
         object_id_counter += 1
 
-    # Save to PIL image.
-    # fig = plt.gcf()
-    # return Image.frombytes('RGB', fig.canvas.get_width_height(), fig.canvas.tostring_rgb())
-    plt.show()
+    plt.tight_layout()
+
+    if not live:
+        # Save to PIL image.
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png")
+        buf.seek(0)
+
+        plt.clf()
+
+        return Image.open(buf)
+    else:
+        # plt.show()
+        # let the caller do show()
+        pass
 
 def detect(image, label):
     start = time.time()

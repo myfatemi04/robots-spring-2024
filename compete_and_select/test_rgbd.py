@@ -1,10 +1,11 @@
 import matplotlib.pyplot as plt
-import pyk4a
+import sys
 
-from camera import Camera
+def main():
+    import pyk4a
+    sys.path.insert(0, "../")
+    from camera import Camera
 
-
-def main():    
     num_cameras = 1
     if pyk4a.connected_device_count() < num_cameras:
         print(f"Error: Not enough K4A devices connected (<{num_cameras}).")
