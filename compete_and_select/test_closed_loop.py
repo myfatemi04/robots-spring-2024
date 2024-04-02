@@ -61,14 +61,14 @@ def main():
     start_t = time.time()
     (reasoning, plan_str, plan) = generate_action_candidates(image, instructions)
     end_t = time.time()
-    print(f"Plan generation time: {end_t-start_t:.4s}")
+    print(f"Plan generation time: {end_t-start_t:.4f}")
 
     act, obj = plan[0]
 
     start_t = time.time()
     successful, info = select_next_action(image, instructions, reasoning, plan_str, obj)
     end_t = time.time()
-    print(f"Action selection time: {end_t-start_t:.4s}")
+    print(f"Action selection time: {end_t-start_t:.4f}")
 
     if successful:
         action_selection = info['action_selection']

@@ -71,7 +71,8 @@ the layout of the scene and what you could do to complete the task at hand.
 
 Then, write "Plan:", followed by very literal text descriptions for what the robot's arm should do. You will do this in two steps: The first, selecting a reference point,
 and the second, a short description for the arm's position relative to that reference point. Write your answers in the format "Reference point: ..., Action: ...". For example,
-if you want to open a door, write "Reference point: Door handle, Action: Twist".
+if you want to open a door, write "Reference point: Door handle, Action: Twist". For "reference point", only write the name of the object being referred to, and potentially an
+adjective. Do not describe the reference point in relation to other objects.
 
 Begin your answer with the string "1. ", and continue with a numbered list of the actions to take. Notes:
  - "Reference point" should be a text description of what object the robot should interact with in the scene. It should NEVER refer to the robot arm itself.

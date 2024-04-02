@@ -72,7 +72,7 @@ box to grab. Assume positive x is to the right, and positive y is upward. Write 
 a percentage. For example, if you think the robot should grab the top of object #5, one possible
 control command is "Object: #5, Position: (50%, 90%)". This represents selecting the top of object
 #5, the horizonal center of the bounding box, and the top of the bounding box. Please write your
-percentages with high precision.
+percentages with high precision. Object IDs are written directly ABOVE the bounding box they correspond to.
 """.strip())],
         max_tokens=384,
         tools=[select_grasp_location_function],

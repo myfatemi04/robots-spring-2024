@@ -123,7 +123,7 @@ def detect(image, label):
 
     scores = torch.tensor([prediction['score'] for prediction in predictions])
 
-    keep = ops.nms(boxes_xy, scores, iou_threshold=0.3)
+    keep = ops.nms(boxes_xy, scores, iou_threshold=0.2)
     keep = {int(i) for i in keep}
     # do not accept boxes that fill a whole quadrant of space
     keep = {i for i in keep if box_sizes[i] < 0.25}
