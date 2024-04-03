@@ -28,6 +28,10 @@ def main():
         # BGRA to RGB
         color_rgb = cap.color[..., :-1][..., ::-1]
         depth_map = cap.transformed_depth
+        transformed_depth_pcd = cap.transformed_depth_point_cloud
+
+        print(transformed_depth_pcd.shape, color_rgb.shape)
+        print(transformed_depth_pcd[513, 903] / 1000) # mm to m
 
         plt.imshow(color_rgb)
         scaled_depth = depth_map.max()/(depth_map.max() + depth_map)
