@@ -22,24 +22,38 @@ def main():
     camera = Camera(k4a_devices[0])
     cap = camera.capture()
 
-    # Get depth image. Look at the below URL.
-    # https://github.com/etiennedub/pyk4a/blob/master/pyk4a/transformation.py
-    pcd_xyz = cap.depth_point_cloud.reshape(-1, 3)
-    pcd_color = cap.transformed_color.reshape(-1, 4)[:, :-1][:, ::-1]
+    render_mode = 'rgbd'
 
-    point_mask = pcd_xyz[:, -1] < 1000
-    pcd_xyz = pcd_xyz[point_mask]
-    pcd_color = pcd_color[point_mask]
-    skip_every = 5
-    pcd_xyz = pcd_xyz[::skip_every]
-    pcd_color = pcd_color[::skip_every]
+    if render_mode == 'rgbd':
+        # BGRA to RGB
+        color_rgb = cap.color[..., :-1][..., ::-1]
+        depth_map = cap.transformed_depth
 
-    ax = plt.figure().add_subplot(projection='3d')
-    ax.scatter(*pcd_xyz.T, c=pcd_color/255)
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.set_zlabel("z")
-    plt.show()
+        plt.imshow(color_rgb)
+        scaled_depth = depth_map.max()/(depth_map.max() + depth_map)
+        scaled_depth[depth_map == 0] = 0
+        plt.imshow(scaled_depth, cmap='magma', alpha=scaled_depth)
+        plt.colorbar()
+        plt.show()
+    else:
+        # Get depth image. Look at the below URL.
+        # https://github.com/etiennedub/pyk4a/blob/master/pyk4a/transformation.py
+        pcd_xyz = cap.depth_point_cloud.reshape(-1, 3)
+        pcd_color = cap.transformed_color.reshape(-1, 4)[:, :-1][:, ::-1]
+
+        point_mask = pcd_xyz[:, -1] < 1000
+        pcd_xyz = pcd_xyz[point_mask]
+        pcd_color = pcd_color[point_mask]
+        skip_every = 5
+        pcd_xyz = pcd_xyz[::skip_every]
+        pcd_color = pcd_color[::skip_every]
+
+        ax = plt.figure().add_subplot(projection='3d')
+        ax.scatter(*pcd_xyz.T, c=pcd_color/255)
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.set_zlabel("z")
+        plt.show()
 
     camera.close()
 
