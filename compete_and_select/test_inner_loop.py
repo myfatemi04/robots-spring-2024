@@ -95,7 +95,7 @@ move_arm_function = {
     }
 }
 
-def render_virtual_plan(image, plan):
+def render_virtual_plan(image, plan, live=False):
     # Add a small correction step.
     current_eef_pose, current_eef_quat = robot.get_ee_pose()
     current_eef_pose = current_eef_pose - movement_bias
@@ -111,7 +111,10 @@ def render_virtual_plan(image, plan):
     plt.savefig("tmp.png")
     virtual_plan_image = Image.open("tmp.png")
     os.remove("tmp.png")
-    plt.show()
+    if live:
+        plt.show()
+    else:
+        plt.clf()
 
     return (virtual_plan_image)
 
@@ -119,14 +122,14 @@ def prompt_with_virtual_plans(task_image, previous_plans, current_image):
     # use in-context learning by rendering the plan virtually
     # sort of a notion of visual prompt engineering / providing a correction step
     prompt_messages = [
-        ("Look at this image. You are tasked with grabbing the selected item.", task_image),
+        ("Look at this image. You are tasked with moving the robot's arm (which is a silver, C-shaped gripper) towards the target object, which is outlined in a bright red bounding box.", task_image),
         None,
         ("Here is the current state of the scene. Where is the target relative to the robot's gripper? To achieve the target, should the arm move up, down, left, right, forward, or backward? Answer with a single direction and a number of centimeters.",
         current_image)
     ]
     for previous_plan in previous_plans:
         prompt_messages.append(f"Movement direction: {previous_plan['movement_direction']}, Movement amount: {previous_plan['movement_amount_centimeters']}")
-        prompt_messages.append((render_virtual_plan(image, previous_plan), f"This red arrow is what the \"{previous_plan['movement_direction']}\" direction looks like, and its length is {previous_plan['movement_amount_centimeters']}. Given this knowledge, choose the movement direction and magnitude you think is best. You can choose the same movement direction and magnitude if you want."))
+        prompt_messages.append((render_virtual_plan(image, previous_plan), f"This red arrow is what the \"{previous_plan['movement_direction']}\" direction looks like, and its length is {previous_plan['movement_amount_centimeters']}. Does the movement direction look correct? Carefully look at where the robot's arm is, and what the target location is. Should the robot's arm move further or less? Propose a revised plan."))
     return prompt_messages
 
 image_np = np.ascontiguousarray(camera.capture().color[..., :-1][..., ::-1])
@@ -152,6 +155,8 @@ for _ in range(3):
         temperature=0,
     )
     print(plan)
+
+    render_virtual_plan(image, plan, live=True)
 
     current_eef_pose, current_eef_quat = robot.get_ee_pose()
     current_eef_pose = current_eef_pose - movement_bias
