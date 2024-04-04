@@ -70,7 +70,7 @@ Look at the label associated with the correct object to interact with. Think car
 of the object to interact with. Then, write the relative position within that object's bounding
 box to grab. Assume positive x is to the right, and positive y is upward. Write your answer as
 a percentage. For example, if you think the robot should grab the top of object #5, one possible
-control command is "Object: #5, Position: (50%, 90%)". This represents selecting the top of object
+control command is "Object: #5, Position: (50, 90)". This represents selecting the top of object
 #5, the horizonal center of the bounding box, and the top of the bounding box. Please write your
 percentages with high precision. Object IDs are written directly ABOVE the bounding box they correspond to.
 """.strip())],

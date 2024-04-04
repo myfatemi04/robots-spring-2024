@@ -116,6 +116,10 @@ def gpt4v_plusplus(msgs, **kwargs):
             messages.append({"role": role, "content": [
                 x if type(x) == str else image_message(x) for x in msg
             ]})
+        elif msg is None:
+            pass
+        else:
+            assert False, "Unknown message type: " + str(type(msg))
         role = "user" if role == "assistant" else "assistant"
 
     print(":::: Calling GPT-4V ::::")
@@ -127,10 +131,9 @@ def gpt4v_plusplus(msgs, **kwargs):
       **kwargs,
     )
 
-    if len(response.choices[0].message.tool_calls) > 0:
+    tool_calls = response.choices[0].message.tool_calls
+    if tool_calls is not None and len(tool_calls) > 0:
         # for my purposes I will always know if a function was called
-        return json.loads(
-            response.choices[0].message.tool_calls[0].function.arguments
-        )
+        return json.loads(tool_calls[0].function.arguments)
     else:
         return response.choices[0].message.content
