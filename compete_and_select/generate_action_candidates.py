@@ -66,7 +66,7 @@ Give me a very concrete / literal set of steps, as if you were instructing a rob
 with very little semantic understanding, who can only use visual or physical descriptions
 of how to interact with objects.
 
-Begin your response with "Observations:" followed by some of your observations. Use this time to understand
+Begin your response with the exact string "Observations:" followed by some of your observations. Use this time to understand
 the layout of the scene and what you could do to complete the task at hand.
 
 Then, write "Plan:", followed by very literal text descriptions for what the robot's arm should do. You will do this in two steps: The first, selecting a reference point,

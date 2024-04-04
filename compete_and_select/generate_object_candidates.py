@@ -8,14 +8,23 @@ import torchvision.ops as ops
 from PIL import Image
 
 # Transformers 4.33 doesn't have OwlViT as a pipeline, but we can use it manually.
-from transformers import pipeline
+# from transformers import pipeline
 
-checkpoint = "google/owlv2-base-patch16-ensemble"
-detector = pipeline(model=checkpoint, task="zero-shot-object-detection", device="cuda")
-# from transformers import OwlViTProcessor, OwlViTForObjectDetection
+# checkpoint = "google/owlv2-base-patch16-ensemble"
+# detector = pipeline(model=checkpoint, task="zero-shot-object-detection", device="cuda")
+import transformers
+import transformers.processing_utils
+from owlv2 import Owlv2Processor, Owlv2ForObjectDetection, Owlv2ImageProcessor
 
-# processor = Owlv2Processor.from_pretrained("google/owlv2-base-patch16-ensemble")
-# model = OwlViTForObjectDetection.from_pretrained("google/owlv2-base-patch16-ensemble").to("cuda")
+def set(x, y, z):
+    x[y] = z
+
+set(transformers.processing_utils.transformers_module._objects, "Owlv2Processor", Owlv2Processor)
+set(transformers.processing_utils.transformers_module._objects, "Owlv2ImageProcessor", Owlv2ImageProcessor)
+set(transformers.processing_utils.transformers_module._objects, "Owlv2ForObjectDetection", Owlv2ForObjectDetection)
+
+processor = Owlv2Processor.from_pretrained("google/owlv2-base-patch16-ensemble")
+model = Owlv2ForObjectDetection.from_pretrained("google/owlv2-base-patch16-ensemble").to("cuda")
 
 def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
     plt.clf()
@@ -75,23 +84,28 @@ def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
 
 def detect(image, label):
     start = time.time()
-    # inputs = processor(text=[label], images=image, return_tensors="pt").to("cuda")
-    # outputs = model(**inputs)
+    inputs = processor(text=[label], images=image, return_tensors="pt").to("cuda")
+    outputs = model(**inputs)
 
-    # # Target image sizes (height, width) to rescale box predictions [batch_size, 2]
-    # target_sizes = torch.Tensor([image.size[::-1]])
-    # # Convert outputs (bounding boxes and class logits) to Pascal VOC format (xmin, ymin, xmax, ymax)
-    # results = processor.post_process_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=0.1)
-    # # Corresponds to texts[0], which is just label
-    # results = results[0]
-    # i = 0  # Retrieve predictions for the first image for the corresponding text queries
-    # boxes, scores, labels = results["boxes"], results["scores"], results["labels"]
-    # predictions = [{"box": box, "score": score, "label": label} for (box, score, label) in zip(boxes, scores, labels)]
+    # Target image sizes (height, width) to rescale box predictions [batch_size, 2]
+    target_sizes = torch.Tensor([image.size[::-1]])
+    # Convert outputs (bounding boxes and class logits) to Pascal VOC format (xmin, ymin, xmax, ymax)
+    results = processor.post_process_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=0.1)
+    # Corresponds to texts[0], which is just label
+    results = results[0]
+    i = 0  # Retrieve predictions for the first image for the corresponding text queries
+    boxes, scores, labels = results["boxes"], results["scores"], results["labels"]
+    predictions = [{"box": {
+        'xmin': box[0].item(),
+        'ymin': box[1].item(),
+        'xmax': box[2].item(),
+        'ymax': box[3].item(),
+    }, "score": score, "label": label} for (box, score, label) in zip(boxes, scores, labels)]
 
-    predictions = detector(
-        image,
-        candidate_labels=[label],
-    )
+    # predictions = detector(
+    #     image,
+    #     candidate_labels=[label],
+    # )
     end = time.time()
 
     print(f"Detection duration: {end - start:.2f}")

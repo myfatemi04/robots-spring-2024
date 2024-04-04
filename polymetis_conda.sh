@@ -18,4 +18,10 @@ if [ -f "/home/huron/Repos_2/polymetis_miniconda3/etc/profile.d/mamba.sh" ]; the
     . "/home/huron/Repos_2/polymetis_miniconda3/etc/profile.d/mamba.sh"
 fi
 # <<< conda initialize <<<
-conda activate polymetis
+# conda activate robo
+
+# export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+
+# export CUDA_HOME=/home/huron/Repos_2/polymetis_miniconda3/envs/robo
+
+
