@@ -1,6 +1,7 @@
 # Given a goal position and instruction, we try to adjust the robot's end effector position to match.
 # Maybe we don't even need to specify goals in exact 3D coordinates.
 
+import os
 import pickle
 import sys
 
@@ -64,8 +65,6 @@ robot_directions = {
     'down': np.array([0, 0, -1]),
 }
 
-print(camera_directions)
-
 def calculate_translation_vector(direction, amount_m):
     direction_vector = robot_directions[direction]
     direction_vector = direction_vector / np.linalg.norm(direction_vector)
@@ -78,17 +77,6 @@ def move_relative(move):
     if 'y' != input("Final confirm (y/n) "):
         return
     robot.move_to_ee_pose(move_tens, delta=True)
-
-image_np = np.ascontiguousarray(camera.capture().color[..., :-1][..., ::-1])
-image = Image.fromarray(image_np)
-
-plt.subplot(1, 2, 1)
-plt.title("Task image")
-plt.imshow(task_image)
-plt.subplot(1, 2, 2)
-plt.title("Current Image")
-plt.imshow(image)
-plt.show()
 
 move_arm_function = {
     "type": "function",
@@ -107,40 +95,73 @@ move_arm_function = {
     }
 }
 
-# outcome = gpt4v([
-#         ("Look at this image. Your goal is to grab this cup.", task_image),
-#         None,
-#         ("Here is the current state of the scene. Where is the target relative to the robot's gripper? To achieve the target, should the arm move up, down, left, right, forward, or backward? Answer with a single direction and a number of centimeters.",
-#         image)
-#     ],
-#     tools=[move_arm_function],
-#     tool_choice={
-#         "type": "function",
-#         "function": {"name": "move_arm"}
-#     },
-#     temperature=0,
-# )
-outcome = {'movement_direction': 'right', 'movement_amount_centimeters': 20}
+def render_virtual_plan(image, plan):
+    # Add a small correction step.
+    current_eef_pose, current_eef_quat = robot.get_ee_pose()
+    current_eef_pose = current_eef_pose - movement_bias
+    translation_vector = calculate_translation_vector(plan['movement_direction'], plan['movement_amount_centimeters'] / 100)
 
-# Add a small correction step.
-current_eef_pose, current_eef_quat = robot.get_ee_pose()
-current_eef_pose = current_eef_pose - movement_bias
-move = calculate_translation_vector(outcome['movement_direction'], outcome['movement_amount_centimeters'] / 100)
+    arrow_start_pt = camera.project_points(current_eef_pose.unsqueeze(0).numpy())[0]
+    arrow_end_pt = camera.project_points(current_eef_pose.unsqueeze(0).numpy() + translation_vector)[0]
 
-print(move)
+    # draw plan
+    scale = 1
+    plt.imshow(image)
+    plt.arrow(arrow_start_pt[0], arrow_start_pt[1], scale * (arrow_end_pt[0] - arrow_start_pt[0]), scale * (arrow_end_pt[1] - arrow_start_pt[1]), label='planned movement', width=5, head_width=20, edgecolor='red', facecolor='red')
+    plt.savefig("tmp.png")
+    virtual_plan_image = Image.open("tmp.png")
+    os.remove("tmp.png")
+    plt.show()
 
-arrow_start_pt = camera.project_points(current_eef_pose.unsqueeze(0).numpy())[0]
-arrow_end_pt = camera.project_points(current_eef_pose.unsqueeze(0).numpy() + move)[0]
+    return (virtual_plan_image)
 
-# draw plan
-scale = 1
-print(outcome)
+def prompt_with_virtual_plans(task_image, previous_plans, current_image):
+    # use in-context learning by rendering the plan virtually
+    # sort of a notion of visual prompt engineering / providing a correction step
+    prompt_messages = [
+        ("Look at this image. You are tasked with grabbing the selected item.", task_image),
+        None,
+        ("Here is the current state of the scene. Where is the target relative to the robot's gripper? To achieve the target, should the arm move up, down, left, right, forward, or backward? Answer with a single direction and a number of centimeters.",
+        current_image)
+    ]
+    for previous_plan in previous_plans:
+        prompt_messages.append(f"Movement direction: {previous_plan['movement_direction']}, Movement amount: {previous_plan['movement_amount_centimeters']}")
+        prompt_messages.append((render_virtual_plan(image, previous_plan), f"This red arrow is what the \"{previous_plan['movement_direction']}\" direction looks like, and its length is {previous_plan['movement_amount_centimeters']}. Given this knowledge, choose the movement direction and magnitude you think is best. You can choose the same movement direction and magnitude if you want."))
+    return prompt_messages
+
+image_np = np.ascontiguousarray(camera.capture().color[..., :-1][..., ::-1])
+image = Image.fromarray(image_np)
+
+plt.subplot(1, 2, 1)
+plt.title("Task image")
+plt.imshow(task_image)
+plt.subplot(1, 2, 2)
+plt.title("Current Image")
 plt.imshow(image)
-plt.arrow(arrow_start_pt[0], arrow_start_pt[1], scale * (arrow_end_pt[0] - arrow_start_pt[0]), scale * (arrow_end_pt[1] - arrow_start_pt[1]), label='planned movement', width=5, head_width=20, edgecolor='red', facecolor='red')
-# plt.plot([arrow_start_pt[0], arrow_end_pt[0]], [arrow_start_pt[1], arrow_end_pt[1]], label='planned movement')
 plt.show()
 
-# if 'y' == input("Is this OK? (y/n) "):
-#     move_relative(move)
+previous_plans = []
+
+for _ in range(3):
+    plan = gpt4v(prompt_with_virtual_plans(task_image, previous_plans, image),
+        tools=[move_arm_function],
+        tool_choice={
+            "type": "function",
+            "function": {"name": "move_arm"}
+        },
+        temperature=0,
+    )
+    print(plan)
+
+    current_eef_pose, current_eef_quat = robot.get_ee_pose()
+    current_eef_pose = current_eef_pose - movement_bias
+    translation_vector = calculate_translation_vector(plan['movement_direction'], plan['movement_amount_centimeters'] / 100)
+
+    # add to history of previous plans to allow replanning
+    previous_plans.append(plan)
+
+# get the translation vector for the final outcome
+if 'y' == input("Is this OK? (y/n) "):
+    move_relative(translation_vector)
 
 camera.close()

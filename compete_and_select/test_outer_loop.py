@@ -138,6 +138,8 @@ def main():
             plt.show()
 
         instructions = input("Instruction: ")
+        if len(instructions) == 0:
+            break
         start_t = time.time()
         (reasoning, plan_str, plan) = generate_action_candidates(image, instructions)
         end_t = time.time()

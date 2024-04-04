@@ -1,8 +1,10 @@
-from openai import OpenAI
+import base64
 import io
 import json
+
+import hjson
 import PIL.Image as Image
-import base64
+from openai import OpenAI
 
 load_llava = False
 if load_llava:
@@ -134,6 +136,13 @@ def gpt4v_plusplus(msgs, **kwargs):
     tool_calls = response.choices[0].message.tool_calls
     if tool_calls is not None and len(tool_calls) > 0:
         # for my purposes I will always know if a function was called
-        return json.loads(tool_calls[0].function.arguments)
+        try:
+            return json.loads(tool_calls[0].function.arguments)
+        except:
+            try:
+                return hjson.loads(tool_calls[0].function.arguments)
+            except:
+                print("could not parse with python json OR hjson. why can't openai just use YAML or some state machine to constrain outputs??")
+                print(tool_calls[0].function.arguments)
     else:
         return response.choices[0].message.content
