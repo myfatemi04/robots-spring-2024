@@ -27,6 +27,7 @@ processor = Owlv2Processor.from_pretrained("google/owlv2-base-patch16-ensemble")
 model = Owlv2ForObjectDetection.from_pretrained("google/owlv2-base-patch16-ensemble").to("cuda")
 
 def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
+    plt.rcParams['figure.dpi'] = 128
     plt.clf()
 
     # plt.title("Results from OWL-ViT")
@@ -71,7 +72,7 @@ def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
     if not live:
         # Save to PIL image.
         buf = io.BytesIO()
-        plt.savefig(buf, format="png")
+        plt.savefig(buf, format="png", dpi=128)
         buf.seek(0)
 
         plt.clf()
