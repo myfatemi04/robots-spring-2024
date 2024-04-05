@@ -84,7 +84,7 @@ def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
 
 def detect(image, label):
     start = time.time()
-    inputs = processor(text=[label], images=image, return_tensors="pt").to("cuda")
+    inputs = processor(text=[label.lower()], images=image, return_tensors="pt").to("cuda")
     outputs = model(**inputs)
 
     # Target image sizes (height, width) to rescale box predictions [batch_size, 2]

@@ -76,13 +76,13 @@ adjective. Do not describe the reference point in relation to other objects.
 
 Begin your answer with the string "1. ", and continue with a numbered list of the actions to take. Notes:
  - "Reference point" should be a text description of what object the robot should interact with in the scene. It should NEVER refer to the robot arm itself.
-   This command will be *sent* to the robotic arm, and the robotic arm will use this to identify an object to interact with.
+   This command will be *sent* to the robotic arm, and the robotic arm will use this to identify an object to interact with. Do not use propositions or spatial adjectives.
  - "Action" should refer to the action the robot arm should take with the object.
  - Both "Object" and "Action" should be very brief descriptions (i.e. 3-5 words).
  - Ensure you adhere to the format "Reference point: [object], Action: [action]". The two text descriptions must be on the same line, separated by a comma.
 """.strip()
         
-        response = gpt4v(image, prompt)
+        response = gpt4v(image, prompt, temperature=0)
 #         response = """
 # Observations: There is a robot arm located in a room with a desk and various objects. On a dark circular table in front of the robot, there is a red block and two green cups placed upside-down, one of which has a blue cloth partially underneath it. Also observable are other miscellaneous objects, like tape and batteries, but these are irrelevant to the task. The red block is positioned to the robot's right and slightly ahead of it, while the cups are to the left. We assume the goal is to have the robot place the block into one of the green cups.
 

@@ -87,7 +87,7 @@ def image_message(image):
         }
     }
 
-def gpt4v(image, text, max_new_tokens=384):
+def gpt4v(image, text, max_new_tokens=384, **kwargs):
     client = OpenAI()
     
     response = client.chat.completions.create(
@@ -102,6 +102,7 @@ def gpt4v(image, text, max_new_tokens=384):
         }
       ],
       max_tokens=max_new_tokens,
+      **kwargs,
     )
     
     return response.choices[0].message.content
