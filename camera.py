@@ -60,6 +60,33 @@ class Camera:
         self.distortion_coefficients = calibration.get('distortion_coefficients', None)
         self.original_calibration = False
 
+    def transform_sensed_points_to_robot_frame(self, pcd_xyz):
+        """
+        Transforms point clouds (can be Nx3 or HxWx3) from camera frame
+        into robot frame, using the calibration created by the Apriltag.
+
+        Returns None if the camera has not been calibrated yet.
+        """
+        if self.extrinsic_matrix is None:
+            return None
+
+        translation = self.extrinsic_matrix[[0, 1, 2], 3]
+        rotation = self.extrinsic_matrix[:3, :3]
+
+        # Flatten
+        shape = pcd_xyz.shape
+        pcd_xyz = pcd_xyz.reshape(-1, 3)
+
+        # we change units from mm to meters
+        pcd_xyz = pcd_xyz / 1000
+        # untranslate and unrotate
+        pcd_xyz = (rotation.T @ (pcd_xyz - translation).T).T
+
+        # Unflatten
+        pcd_xyz = pcd_xyz.reshape(*shape)
+
+        return pcd_xyz
+
     def close(self):
         self.k4a.close()
 
