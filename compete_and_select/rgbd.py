@@ -92,9 +92,11 @@ class RGBD:
                     print("Calibrated camera", self.camera_ids[i])
 
             if camera.extrinsic_matrix is not None:
-                point_clouds.append(
-                    camera.transform_sensed_points_to_robot_frame(capture.transformed_depth_point_cloud)
-                )
+                point_cloud = camera.transform_sensed_points_to_robot_frame(capture.transformed_depth_point_cloud)
+                # replace "bad points" with a magic number
+                bad_point_mask = (capture.transformed_depth_point_cloud == np.array([0, 0, 0])).all(axis=-1)
+                point_cloud[bad_point_mask] = np.array([-10000, -10000, -10000])
+                point_clouds.append(point_cloud)
             else:
                 point_clouds.append(None)
 

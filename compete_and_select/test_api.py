@@ -9,6 +9,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 import traceback
 import torch
+import pickle
 
 from panda import Panda
 from rgbd import RGBD
@@ -64,6 +65,10 @@ def main():
     vars = {}
 
     locals_ = locals()
+
+    def save(object, filename):
+        with open(filename, "wb") as f:
+            pickle.dump(object, f)
 
     def handle_commands():
         nonlocal locals_
