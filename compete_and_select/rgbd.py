@@ -1,6 +1,7 @@
 import pickle
 import sys
 from typing import List
+import cv2
 
 sys.path.insert(0, "../")
 from camera import Camera
@@ -57,7 +58,7 @@ class RGBD:
 
     def try_calibrate(self, camera_index, image):
         camera = self.cameras[camera_index]
-        image_gray = image.mean(axis=-1).astype(np.uint8)
+        image_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         try:
             detections = apriltag_detector.detect(image_gray)
         except RuntimeError:
