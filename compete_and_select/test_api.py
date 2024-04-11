@@ -8,9 +8,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.spatial.transform import Rotation
 import traceback
+import torch
 
 from panda import Panda
 from rgbd import RGBD
+
+from transformers import SamModel, SamProcessor
+import torch
+
+model = SamModel.from_pretrained("facebook/sam-vit-base").cuda()
+processor = SamProcessor.from_pretrained("facebook/sam-vit-base")
 
 def euler2quat(yaw, pitch, roll):
     rot = Rotation.from_euler('xyz', [yaw, pitch, roll], degrees=True)
@@ -19,6 +26,31 @@ def euler2quat(yaw, pitch, roll):
     # make scalar-first
     # return np.array([rot_quat[-1], *rot_quat[:-1]])
     return rot_quat
+
+def get_sam_mask(image, input_boxes):
+    with torch.no_grad():
+        inputs = processor(image, input_boxes=input_boxes, return_tensors="pt").to("cuda")
+        outputs = model(**inputs)
+        masks = processor.image_processor.post_process_masks(outputs.pred_masks.cpu(), inputs["original_sizes"].cpu(), inputs["reshaped_input_sizes"].cpu())
+        scores = outputs.iou_scores
+
+    import matplotlib.pyplot as plt
+
+    plt.title("SAM detections")
+    plt.imshow(image)
+    for i in range(len(masks[0][0])):
+        plt.imshow(masks[0][0][i], alpha=masks[0][0][i] * scores[0, 0, i].cpu())
+
+    print("Number of masks:", len(masks[0][0]))
+    print("Mask scores:", scores[0, 0])
+
+    # Prevents matplotlib from stealing focus.
+    plt.ioff()
+    fig = plt.gcf()
+    fig.canvas.draw_idle()
+    fig.canvas.start_event_loop(0.001)
+    plt.show()
+    plt.ion()
 
 def main():
     panda = Panda()
@@ -62,6 +94,13 @@ def main():
             # print(f"Capture duration: {end_time - start_time:.3f}s")
 
             locals_ = locals()
+
+            if 'sam_img' in vars and 'sam_pts' in vars:
+                plt.close()
+                print("Generating SAM mask.")
+                get_sam_mask(vars['sam_img'], vars['sam_pts'])
+                del vars['sam_img']
+                del vars['sam_pts']
 
             plt.clf()
             plt.subplot(1, 2, 1)
