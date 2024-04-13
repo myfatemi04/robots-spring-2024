@@ -105,3 +105,34 @@ class RGBD:
     def close(self):
         for camera in self.cameras:
             camera.close()
+
+def get_normal_map(point_cloud_image):
+    """
+    Given (H, W, 3), a point cloud image, generate surface normals.
+    We approximate this as the cross product between derivatives of 3D
+    position with respect to image x/y.
+    """
+    result = np.zeros_like(point_cloud_image)
+
+    # add slight blur
+    point_cloud_image_blur = cv2.GaussianBlur(point_cloud_image, ksize=(5,5), sigmaX=2)
+
+    # expected to be right
+    horiz_deriv = (point_cloud_image_blur[2:, 1:-1, :] - point_cloud_image_blur[:-2, 1:-1, :]) / 2
+    # expected to be down (because y in images is flipped)
+    vert_deriv = (point_cloud_image_blur[1:-1, 2:, :] - point_cloud_image_blur[1:-1, :-2, :]) / 2
+    horiz_deriv_norm = horiz_deriv / np.linalg.norm(horiz_deriv, axis=-1, keepdims=True)
+    vert_deriv_norm = vert_deriv / np.linalg.norm(vert_deriv, axis=-1, keepdims=True)
+    # down cross right equals out of the page. normalize
+    result[1:-1, 1:-1] = np.cross(vert_deriv_norm, horiz_deriv_norm)
+
+    # get rid of any parts where normal is unknown (any point is (-10000, -10000, -10000))
+    bad_points = (point_cloud_image == -10000).all(axis=-1)
+    bad_points_orig = np.copy(bad_points)
+    bad_points[1:, :] |= bad_points_orig[:-1, :]
+    bad_points[:-1, :] |= bad_points_orig[1:, :]
+    bad_points[:, 1:] |= bad_points_orig[:, :-1]
+    bad_points[:, :-1] |= bad_points_orig[:, 1:]
+    result[bad_points] = 0
+
+    return result
