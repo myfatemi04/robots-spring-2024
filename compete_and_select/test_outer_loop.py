@@ -33,7 +33,7 @@ def main():
 
     print(k4a_device_map)
 
-    left = Camera(k4a_device_map['000256121012'])
+    left = Camera(k4a_device_map['000259521012'])
     right = Camera(k4a_device_map['000243521012'])
     # camera = Camera(k4a_devices[0])
 
