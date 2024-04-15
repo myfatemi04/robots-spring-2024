@@ -16,7 +16,6 @@ def find_valid_point(pcd, xy, r=10):
         xy[0] - r : xy[0] + r
     ]
     mask = ~((roi_xyz == -10000).any(axis=-1))
-    print(roi_xyz[mask])
     return np.median(roi_xyz[mask], axis=0)
 
 def smoothen_pcd(pcd):
@@ -121,56 +120,20 @@ mask = object_points[..., 2] < -center_xyz[2]
 object_points = object_points[~mask]
 object_point_colors = object_point_colors[~mask]
 
-grasps = []
-
 start_time = time.time()
 
-for i in range(8):
-    rotate_angle = np.pi / 8 * i
-    z_inv = np.array([np.cos(rotate_angle), np.sin(rotate_angle), 0])
-    x_inv = np.array([np.cos(rotate_angle - np.pi/2), np.sin(rotate_angle - np.pi/2), 0])
-    y_inv = np.cross(z_inv, x_inv)
-    rotation_matrix = np.array([x_inv, y_inv, z_inv])
-
-    # apply rotation matrix to points
-    rotated_object_points = object_points @ rotation_matrix.T
-    lower_bound_, upper_bound_ = np.min(rotated_object_points, axis=0), np.max(rotated_object_points, axis=0)
-    voxels_ = voxelize(rotated_object_points, object_point_colors, (lower_bound_, upper_bound_), voxel_size)
-
-    ws = 2 # int(0.01 / voxel_size + 0.5) # round up
-    h = 1 # 2
-    gripper_width = 0.2
-
-    voxel_occupancy_ = (voxels_[:, :, :, -1] >= min_points_in_voxel)
-    max_alpha = 15
-    grasps_voxelized = detect_grasps(voxel_occupancy_, voxel_size, gripper_width, max_alpha, h, ws)
-    # translate these into the original frame.
-    # these are in (x, y, zmin, zmax) format.
-    grasps_from_this = []
-    for (x, y, zmin, zmax, alpha_lower, alpha_upper) in grasps_voxelized:
-        start = (np.array([x, y, zmin]) * voxel_size + lower_bound_) @ rotation_matrix
-        end = (np.array([x, y, zmax]) * voxel_size + lower_bound_) @ rotation_matrix
-        worst_alpha = max(abs(alpha_lower), abs(alpha_upper))
-        grasps_from_this.append((worst_alpha, start, end))
-
-    # select top grasps by force closure
-    grasps_from_this.sort(key=lambda x: x[0])
-
-    grasps.extend([(start, end) for (_, start, end) in grasps_from_this[:5]])
-
-    if True:# show_rotated_voxel_clouds:
-        fig = plt.figure()
-        ax: plt.Axes = fig.add_subplot(projection='3d')
-        ax.set_title(f"Rotation Angle: $\\frac{{{i}\\pi}}{{8}}$")
-
-        voxel_color_ = voxels_.copy()
-        voxel_color_[..., -1] = 1.0
-        ax.voxels(voxel_occupancy_, facecolors=voxel_color_, edgecolor=(1, 1, 1, 0.1)) # type: ignore
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-        ax.set_zlabel('z') # type: ignore
-        set_axes_equal(ax)
-        plt.show()
+grasps = detect_grasps(
+    object_points,
+    object_point_colors,
+    voxel_size=0.005,
+    min_points_in_voxel=2,
+    gripper_width=0.2,
+    max_alpha=15,
+    hop_size=1,
+    window_size=2,
+    top_k_per_angle=5,
+    show_rotated_voxel_grids=False
+)
 
 end_time = time.time()
 
@@ -188,20 +151,10 @@ ax.set_zlabel('z') # type: ignore
 
 # plot grasp locations
 for grasp in grasps:
-    ((x1, y1, z1), (x2, y2, z2)) = grasp
-    x1 -= lower_bound[0]
-    y1 -= lower_bound[1]
-    z1 -= lower_bound[2]
-    x2 -= lower_bound[0]
-    y2 -= lower_bound[1]
-    z2 -= lower_bound[2]
-    x1 /= voxel_size
-    y1 /= voxel_size
-    z1 /= voxel_size
-    x2 /= voxel_size
-    y2 /= voxel_size
-    z2 /= voxel_size
-    ax.scatter(x1, y1, z2, c='r')
+    _worst_alpha, start, end = grasp
+    (x1, y1, z1) = (start - lower_bound) / voxel_size
+    (x2, y2, z2) = (end - lower_bound) / voxel_size
+    ax.scatter(x1, y1, z1, c='r')
     ax.scatter(x2, y2, z2, c='g')
     ax.plot([x1, x2], [y1, y2], [z2, z2], c='b')
 

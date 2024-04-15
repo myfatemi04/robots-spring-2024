@@ -1,6 +1,10 @@
+import cv2
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import convolve2d
-import cv2
+from set_axes_equal import set_axes_equal
+from voxelize import voxelize
+
 
 def get_normal(window):
     # we use finite differences method.
@@ -16,7 +20,7 @@ def smoothen_window(window):
     # ^^ convolve2d(window_min_z, np.ones((3, 3)) / 9, mode='same', boundary='symm')
     return cv2.medianBlur(window.astype(np.float32), 3) # type: ignore
 
-def detect_grasps(voxel_occupancy, voxel_size, gripper_width, max_alpha, h=2, ws=2):
+def detect_grasps_z_axis(voxel_occupancy, voxel_size, gripper_width, max_alpha, hop_size=2, window_size=2):
     """
     Detects vertical grasps in a voxel grid, assuming a parallel-jaw gripper.
     Uses z as the gripper direction.
@@ -39,10 +43,10 @@ def detect_grasps(voxel_occupancy, voxel_size, gripper_width, max_alpha, h=2, ws
 
     grasp_locations = []
 
-    for x in range(ws, voxel_occupancy.shape[0] - ws, h):
-        for y in range(ws, voxel_occupancy.shape[1] - ws, h):
-            window_min_z = min_z[x - ws:x + ws, y - ws:y + ws]
-            window_max_z = max_z[x - ws:x + ws, y - ws:y + ws]
+    for x in range(window_size, voxel_occupancy.shape[0] - window_size, hop_size):
+        for y in range(window_size, voxel_occupancy.shape[1] - window_size, hop_size):
+            window_min_z = min_z[x - window_size:x + window_size, y - window_size:y + window_size]
+            window_max_z = max_z[x - window_size:x + window_size, y - window_size:y + window_size]
             zmin = np.min(window_min_z) - 1
             zmax = np.max(window_max_z) + 1
 
@@ -55,8 +59,8 @@ def detect_grasps(voxel_occupancy, voxel_size, gripper_width, max_alpha, h=2, ws
             window_max_z = smoothen_window(window_max_z)
 
             # with this smoothed window, calculate the normal (which is the finite differences of the z-values)
-            lower_norm = get_normal(window_min_z[ws - 1:ws + 2, ws - 1:ws + 2])
-            upper_norm = get_normal(window_max_z[ws - 1:ws + 2, ws - 1:ws + 2])
+            lower_norm = get_normal(window_min_z[window_size - 1:window_size + 2, window_size - 1:window_size + 2])
+            upper_norm = get_normal(window_max_z[window_size - 1:window_size + 2, window_size - 1:window_size + 2])
 
             # contact direction is vertical
             alpha_lower = np.degrees(np.arccos(lower_norm[2]))
@@ -78,3 +82,50 @@ def detect_grasps(voxel_occupancy, voxel_size, gripper_width, max_alpha, h=2, ws
                 grasp_locations.append((x, y, zmin, zmax, alpha_lower, alpha_upper))
 
     return grasp_locations
+
+def detect_grasps(object_points, object_point_colors, voxel_size=0.005, min_points_in_voxel=2, gripper_width=0.08, max_alpha=15, hop_size=1, window_size=2, top_k_per_angle=5, show_rotated_voxel_grids=False):
+    grasps = []
+
+    for i in range(8):
+        rotate_angle = np.pi / 8 * i
+        z_inv = np.array([np.cos(rotate_angle), np.sin(rotate_angle), 0])
+        x_inv = np.array([np.cos(rotate_angle - np.pi/2), np.sin(rotate_angle - np.pi/2), 0])
+        y_inv = np.cross(z_inv, x_inv)
+        rotation_matrix = np.array([x_inv, y_inv, z_inv])
+
+        # apply rotation matrix to points
+        rotated_object_points = object_points @ rotation_matrix.T
+        lower_bound_, upper_bound_ = np.min(rotated_object_points, axis=0), np.max(rotated_object_points, axis=0)
+        voxels_ = voxelize(rotated_object_points, object_point_colors, (lower_bound_, upper_bound_), voxel_size)
+
+        voxel_occupancy_ = (voxels_[:, :, :, -1] >= min_points_in_voxel)
+        grasps_voxelized = detect_grasps_z_axis(voxel_occupancy_, voxel_size, gripper_width, max_alpha, hop_size, window_size)
+        # translate these into the original frame.
+        # these are in (x, y, zmin, zmax) format.
+        grasps_from_this = []
+        for (x, y, zmin, zmax, alpha_lower, alpha_upper) in grasps_voxelized:
+            worst_alpha = max(abs(alpha_lower), abs(alpha_upper))
+            print(f"Grasp at x={x} y={y} worst_alpha={worst_alpha:.2f}")
+            start = (np.array([x, y, zmin]) * voxel_size + lower_bound_) @ rotation_matrix
+            end = (np.array([x, y, zmax]) * voxel_size + lower_bound_) @ rotation_matrix
+            grasps_from_this.append((worst_alpha, start, end))
+
+        # select top grasps by force closure
+        grasps_from_this.sort(key=lambda x: x[0])
+        grasps.extend(grasps_from_this[:top_k_per_angle])
+
+        if show_rotated_voxel_grids:
+            fig = plt.figure()
+            ax: plt.Axes = fig.add_subplot(projection='3d')
+            ax.set_title(f"Rotation Angle: $\\frac{{{i}\\pi}}{{8}}$")
+
+            voxel_color_ = voxels_.copy()
+            voxel_color_[..., -1] = 1.0
+            ax.voxels(voxel_occupancy_, facecolors=voxel_color_, edgecolor=(1, 1, 1, 0.1)) # type: ignore
+            ax.set_xlabel('x')
+            ax.set_ylabel('y')
+            ax.set_zlabel('z') # type: ignore
+            set_axes_equal(ax)
+            plt.show()
+
+    return grasps
