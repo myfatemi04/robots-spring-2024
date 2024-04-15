@@ -105,7 +105,7 @@ def detect_grasps(object_points, object_point_colors, voxel_size=0.005, min_poin
         grasps_from_this = []
         for (x, y, zmin, zmax, alpha_lower, alpha_upper) in grasps_voxelized:
             worst_alpha = max(abs(alpha_lower), abs(alpha_upper))
-            print(f"Grasp at x={x} y={y} worst_alpha={worst_alpha:.2f}")
+            # print(f"Grasp at x={x} y={y} worst_alpha={worst_alpha:.2f}")
             start = (np.array([x, y, zmin]) * voxel_size + lower_bound_) @ rotation_matrix
             end = (np.array([x, y, zmax]) * voxel_size + lower_bound_) @ rotation_matrix
             grasps_from_this.append((worst_alpha, start, end))
