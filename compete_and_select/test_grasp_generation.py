@@ -30,9 +30,6 @@ with open(f"capture_{capture_num}.pkl", "rb") as f:
 for i in range(2):
     Image.fromarray(rgbs[i]).save(f"capture_{capture_num}_rgb_{i}.png")
 
-# smoothen pcds
-pcds = [smoothen_pcd(pcd) for pcd in pcds]
-
 show_rgb = True
 show_pcd = True
 show_rotated_voxel_clouds = False
@@ -43,12 +40,15 @@ if show_rgb:
     plt.axis('off')
     plt.show()
 
-# correct for calibration error [duct tape fix; should create more robust solution]
 mask0 = pcds[0] == -10000
 mask1 = pcds[1] == -10000
+
+# adjust point clouds
+pcds = [smoothen_pcd(pcd) for pcd in pcds]
 pcds[0][..., 0] += 0.05
 pcds[0][..., 2] += 0.015
 pcds[1][..., 2] += 0.015
+
 pcds[0][mask0] = -10000
 pcds[1][mask1] = -10000
 

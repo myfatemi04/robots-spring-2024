@@ -16,11 +16,12 @@ from transformers import SamModel, SamProcessor
 
 class SamPointCloudSegmenter():
     def __init__(self, device='cpu', render_2d_results=False):
-        self.model: SamModel = SamModel.from_pretrained("facebook/sam-vit-base") # type: ignore
+        self.model: SamModel = SamModel.from_pretrained("facebook/sam-vit-base").to(device) # type: ignore
         self.processor: SamProcessor = SamProcessor.from_pretrained("facebook/sam-vit-base") # type: ignore
         self.render_2d_results = render_2d_results
         self.device = device
 
+    @torch.no_grad()
     def _segment_image(self, image: Image.Image, input_points=None, input_boxes=None) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         inputs = self.processor(images=[image], input_points=input_points, input_boxes=input_boxes, return_tensors="pt").to(self.device)
         outputs = self.model(**inputs)
@@ -142,6 +143,14 @@ class SamPointCloudSegmenter():
         base_segmentation_cloud = base_point_cloud[mask]
         base_segmentation_cloud_color = np.array(base_rgb_image)[mask]
         base_mask = mask
+
+        # render the segmented point cloud
+        # fig = plt.figure()
+        # ax = fig.add_subplot(projection='3d')
+        # ax.set_title("Base Point Cloud Detection")
+        # ax.scatter(base_segmentation_cloud[:, 0], base_segmentation_cloud[:, 1], base_segmentation_cloud[:, 2], c=base_segmentation_cloud_color/255.0, s=0.5)
+        # set_axes_equal(ax)
+        # plt.show()
 
         point_clouds = [base_segmentation_cloud]
         colors = [base_segmentation_cloud_color]

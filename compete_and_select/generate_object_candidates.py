@@ -12,16 +12,18 @@ from PIL import Image
 
 # checkpoint = "google/owlv2-base-patch16-ensemble"
 # detector = pipeline(model=checkpoint, task="zero-shot-object-detection", device="cuda")
-import transformers
-import transformers.processing_utils
-from owlv2 import Owlv2Processor, Owlv2ForObjectDetection, Owlv2ImageProcessor
+# import transformers
+# import transformers.processing_utils
+# from owlv2 import Owlv2Processor, Owlv2ForObjectDetection, Owlv2ImageProcessor
 
-def set(x, y, z):
-    x[y] = z
+# def set(x, y, z):
+#     x[y] = z
 
-set(transformers.processing_utils.transformers_module._objects, "Owlv2Processor", Owlv2Processor)
-set(transformers.processing_utils.transformers_module._objects, "Owlv2ImageProcessor", Owlv2ImageProcessor)
-set(transformers.processing_utils.transformers_module._objects, "Owlv2ForObjectDetection", Owlv2ForObjectDetection)
+# set(transformers.processing_utils.transformers_module._objects, "Owlv2Processor", Owlv2Processor)
+# set(transformers.processing_utils.transformers_module._objects, "Owlv2ImageProcessor", Owlv2ImageProcessor)
+# set(transformers.processing_utils.transformers_module._objects, "Owlv2ForObjectDetection", Owlv2ForObjectDetection)
+
+from transformers import Owlv2Processor, Owlv2ForObjectDetection
 
 processor = Owlv2Processor.from_pretrained("google/owlv2-base-patch16-ensemble")
 model = Owlv2ForObjectDetection.from_pretrained("google/owlv2-base-patch16-ensemble").to("cuda")
