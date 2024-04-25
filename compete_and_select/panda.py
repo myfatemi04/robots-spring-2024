@@ -22,14 +22,17 @@ class Panda:
         self.movement_bias = torch.tensor([ROBOT_CONTROL_X_BIAS, ROBOT_CONTROL_Y_BIAS, ROBOT_CONTROL_Z_BIAS]).float()
         # self.rotation_bias = Rotation.from_quat(np.array([0, 0, math.sin(math.pi/2), math.cos(math.pi/2)]))
         self.rotation_bias = Rotation.from_matrix(np.array([
+            # [1, 0, 0],
+            # [0, 1, 0],
+            # [0, 0, 1],
+            [np.sqrt(2)/2, -np.sqrt(2)/2, 0],
             [np.sqrt(2)/2, np.sqrt(2)/2, 0],
-            [-np.sqrt(2)/2, np.sqrt(2)/2, 0],
             [0, 0, 1]
         ]))
-        # Kx_default: [750, 750, 750, 15, 15, 15]
-        p = 1500
-        p2 = 30
-        self.Kx = torch.tensor([p, p, p, p2, p2, p2], dtype=torch.float)
+        self.robot.Kq_default = torch.tensor([40, 30, 50, 25, 35, 25, 10], dtype=torch.float)
+        self.robot.Kqd_default = torch.tensor([4, 6, 5, 5, 3, 2, 1], dtype=torch.float)
+        self.robot.Kx_default = torch.tensor([650, 650, 650, 50, 50, 50], dtype=torch.float)
+        self.robot.Kxd_default = torch.tensor([40, 40, 40, 10, 10, 10], dtype=torch.float)
         self.time_to_go = 8
 
     def get_pos(self):
@@ -38,22 +41,23 @@ class Panda:
 
     def move_to(self, pos, **kwargs):
         pos = torch.tensor(pos).float()
-        self.robot.move_to_ee_pose(pos + self.movement_bias, time_to_go=self.time_to_go, Kx=self.Kx, **kwargs)
+        self.robot.move_to_ee_pose(pos + self.movement_bias, time_to_go=self.time_to_go, **kwargs)
         
     def move_by(self, pos, **kwargs):
         pos = torch.tensor(pos).float()
-        self.robot.move_to_ee_pose(pos, delta=True, time_to_go=self.time_to_go, Kx=self.Kx, **kwargs)
+        self.robot.move_to_ee_pose(pos, delta=True, time_to_go=self.time_to_go, **kwargs)
 
     def rotate_to(self, quat, **kwargs):
         quat = torch.tensor(quat).float()
         pos, _ = self.robot.get_ee_pose()
 
-        orig_quat = quat
+        target_rot = Rotation.from_quat(quat.detach().cpu().numpy()) * self.rotation_bias
+
+        print("Target mat:")
+        print(target_rot.as_matrix())
 
         # apply rotation correction
-        quat = torch.tensor((self.rotation_bias * Rotation.from_quat(quat.detach().cpu().numpy())).as_quat(), dtype=torch.float)
-
-        print(quat, orig_quat)
+        quat = torch.tensor(target_rot.as_quat(), dtype=torch.float)
 
         self.robot.move_to_ee_pose(pos, quat, time_to_go=self.time_to_go, **kwargs)
 
