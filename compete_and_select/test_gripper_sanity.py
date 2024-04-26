@@ -3,13 +3,13 @@ import polymetis
 import torch
 
 polymetis_server_ip = "192.168.1.222"
-robot = polymetis.RobotInterface(
-    ip_address=polymetis_server_ip,
-    port=50051,
-    enforce_version=False,
-)
+# robot = polymetis.RobotInterface(
+#     ip_address=polymetis_server_ip,
+#     port=50051,
+#     enforce_version=False,
+# )
 
-robot.move_to_ee_pose(torch.tensor([0.5, 0.0, 0.5]).float())
+# robot.move_to_ee_pose(torch.tensor([0.5, 0.0, 0.5]).float())
 
 gripper = polymetis.GripperInterface(
     ip_address=polymetis_server_ip,

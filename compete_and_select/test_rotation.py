@@ -7,17 +7,6 @@ from scipy.spatial.transform import Rotation
 def vector2quat(claw, right=None):
     claw = claw / np.linalg.norm(claw)
     right = right / np.linalg.norm(right)
-    # uses these vectors to construct a rotation matrix -> quaternion.
-    # if right is None:
-    #     # by default, choose the `up` with the highest possible `z` direction.
-    #     if claw[1] < 0:
-    #         up_non_ortho = np.array([0, 0, 1])
-    #     else:
-    #         up_non_ortho = np.array([0, 0, -1])
-    #     # subtract the forward component of this vector
-    #     proj_onto_forward = np.dot(up_non_ortho, claw) * claw
-    #     right = up_non_ortho - proj_onto_forward
-    #     right = right / np.linalg.norm(right)
 
     palm = np.cross(right, claw)
     matrix = np.array([
@@ -25,15 +14,11 @@ def vector2quat(claw, right=None):
         [palm[1], right[1], claw[1]],
         [palm[2], right[2], claw[2]],
     ])
-    # rotation_matrix = np.array([forward, up, right])
-    print(matrix)
     
     return Rotation.from_matrix(matrix).as_quat()
-    # return np.array([qw, qx, qy, qz])
 
 def matrix2quat(matrix):
-    qx, qy, qz, qw = Rotation.from_matrix(matrix).as_quat()
-    return np.array([qw, qx, qy, qz])
+    return Rotation.from_matrix(matrix).as_quat()
 
 def main():
     panda = Panda()

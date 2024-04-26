@@ -3,6 +3,7 @@ import polymetis
 import torch
 import numpy as np
 from scipy.spatial.transform import Rotation
+import time
 
 class Panda:
     def __init__(self, polymetis_server_ip="192.168.1.222"):
@@ -16,8 +17,8 @@ class Panda:
             port=50052,
         )
 
-        ROBOT_CONTROL_X_BIAS = 0.17
-        ROBOT_CONTROL_Y_BIAS = 0.025
+        ROBOT_CONTROL_X_BIAS = 0.18
+        ROBOT_CONTROL_Y_BIAS = 0.0
         ROBOT_CONTROL_Z_BIAS = 0.10
         self.movement_bias = torch.tensor([ROBOT_CONTROL_X_BIAS, ROBOT_CONTROL_Y_BIAS, ROBOT_CONTROL_Z_BIAS]).float()
         # self.rotation_bias = Rotation.from_quat(np.array([0, 0, math.sin(math.pi/2), math.cos(math.pi/2)]))
@@ -39,9 +40,16 @@ class Panda:
         pos, rotation = self.robot.get_ee_pose()
         return (pos - self.movement_bias, rotation)
 
-    def move_to(self, pos, **kwargs):
+    def move_to(self, pos, orientation=None, **kwargs):
         pos = torch.tensor(pos).float()
-        self.robot.move_to_ee_pose(pos + self.movement_bias, time_to_go=self.time_to_go, **kwargs)
+
+        if orientation is not None:
+            # fix the weird rotation bug
+            quat = orientation
+            quat = torch.tensor(quat).float()
+            orientation = (Rotation.from_quat(quat.detach().cpu().numpy()) * self.rotation_bias).as_quat()
+
+        self.robot.move_to_ee_pose(pos + self.movement_bias, orientation, time_to_go=self.time_to_go, **kwargs)
         
     def move_by(self, pos, **kwargs):
         pos = torch.tensor(pos).float()
@@ -67,7 +75,10 @@ class Panda:
         self.robot.move_to_ee_pose(zero, quat, time_to_go=self.time_to_go, delta=True)
 
     def start_grasp(self):
-        self.gripper.grasp(speed=1, force=1, grasp_width=0.00)
+        # speed, force, grasp width
+        self.gripper.grasp(2, 1.0, 0)
+        time.sleep(0.5)
 
     def stop_grasp(self):
-        self.gripper.grasp(speed=1, force=1, grasp_width=0.08)
+        self.gripper.grasp(2, 1.0, 0.08)
+        time.sleep(0.5)

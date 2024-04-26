@@ -8,8 +8,8 @@ import traceback
 
 import matplotlib
 import matplotlib.pyplot as plt
-import torch
 import numpy as np
+import torch
 from panda import Panda
 from rgbd import RGBD, get_normal_map
 from scipy.spatial.transform import Rotation
@@ -18,37 +18,21 @@ from transformers import SamModel, SamProcessor
 model = SamModel.from_pretrained("facebook/sam-vit-base").cuda()
 processor = SamProcessor.from_pretrained("facebook/sam-vit-base")
 
-def euler2quat(yaw, pitch, roll):
-    rot = Rotation.from_euler('xyz', [yaw, pitch, roll], degrees=True)
-    # scalar-last
-    rot_quat = rot.as_quat()
-    # make scalar-first
-    # return np.array([rot_quat[-1], *rot_quat[:-1]])
-    return rot_quat
+def vector2quat(claw, right=None):
+    claw = claw / np.linalg.norm(claw)
+    right = right / np.linalg.norm(right)
 
-# vars['target_rot'] = get_normal_map(pcds[0])[471,897]
-# panda.rotate_to(vector2quat(-get_normal_map(pcds[0])[471,897]))
-# panda.rotate_to(vector2quat(np.array([.01,0,-1])))
+    palm = np.cross(right, claw)
+    matrix = np.array([
+        [palm[0], right[0], claw[0]],
+        [palm[1], right[1], claw[1]],
+        [palm[2], right[2], claw[2]],
+    ])
+    
+    return Rotation.from_matrix(matrix).as_quat()
 
-def vector2quat(forward, up=None):
-    forward = forward / np.linalg.norm(forward)
-    # uses these vectors to construct a rotation matrix -> quaternion.
-    if up is None:
-        # by default, choose the `up` with the highest possible `z` direction.
-        up_non_ortho = np.array([0, 0, 1])
-        # subtract the forward component of this vector
-        proj_onto_forward = np.dot(up_non_ortho, forward) * forward
-        up = up_non_ortho - proj_onto_forward
-        up = up / np.linalg.norm(up)
-
-    right = np.cross(forward, up)
-    rotation_matrix = np.array([up, right, forward]).T
-    # rotation_matrix = np.array([forward, up, right])
-    print(rotation_matrix)
-
-    quat = Rotation.from_matrix(rotation_matrix).as_quat()
-
-    return quat
+def matrix2quat(matrix):
+    return Rotation.from_matrix(matrix).as_quat()
 
 def get_sam_mask(image, input_boxes):
     with torch.no_grad():
@@ -116,7 +100,7 @@ def main():
             start_time = time.time()
             rgbs, pcds = rgbd.capture()
             end_time = time.time()
-            # print(f"Capture duration: {end_time - start_time:.3f}s")
+
 
             locals_ = locals()
 

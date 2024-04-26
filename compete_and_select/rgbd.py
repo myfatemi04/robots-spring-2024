@@ -19,9 +19,10 @@ apriltag_object_points = np.array([
     [0, +1/2, 0],
     [0, -1/2, 0],
 ]).astype(np.float32) * 0.1778
+zbottom = 0.02
+apriltag_object_points[:, 2] = zbottom
 
-def enumerate_cameras():
-    num_cameras = 2
+def enumerate_cameras(num_cameras=2):
     if pyk4a.connected_device_count() < num_cameras:
         print(f"Error: Not enough K4A devices connected (<{num_cameras}).")
         exit(1)
@@ -38,9 +39,9 @@ def _color(capture: pyk4a.PyK4ACapture):
     return np.ascontiguousarray(capture.color[..., :3][..., ::-1])
 
 class RGBD:
-    def __init__(self, camera_ids=None):
+    def __init__(self, num_cameras=None, camera_ids=None):
         """ camera_ids != None => selects specific cameras for capture """
-        k4a_device_map = enumerate_cameras()
+        k4a_device_map = enumerate_cameras(num_cameras or 2)
 
         if camera_ids is None:
             camera_ids = list(k4a_device_map.keys())
