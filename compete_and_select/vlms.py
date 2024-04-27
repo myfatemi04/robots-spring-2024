@@ -1,22 +1,26 @@
 import base64
 import io
 import json
+import os
 
 import hjson
 import PIL.Image as Image
 from openai import OpenAI
 
-load_llava = False
-if load_llava:
-    from transformers import AutoProcessor, LlavaForConditionalGeneration
+llava_model = None
+llava_processor = None
+def load_llava():
+    global llava_model, llava_processor
+    
+    from transformers import AutoModelForCausalLM, AutoProcessor, LlavaForConditionalGeneration# , LlavaLlamaForCausalLM
+    
+    model_id = "llava-hf/llava-1.5-13b-hf"
+    llava_model = LlavaForConditionalGeneration.from_pretrained(model_id).to('cuda')
+    # bf16. is this small enough?
+    # model_id = "liuhaotian/llava-v1.6-34b"
+    # llava_model = AutoModelForCausalLM.from_pretrained(model_id).to('cuda')
 
-    llava_model = LlavaForConditionalGeneration.from_pretrained("llava-hf/llava-1.5-13b-hf").to('cuda')
-    llava_processor = AutoProcessor.from_pretrained("llava-hf/llava-1.5-13b-hf")
-else:
-    llava_model = None
-    llava_processor = None
-
-import os
+    llava_processor = AutoProcessor.from_pretrained(model_id)
 
 if os.path.exists("key"):
     os.environ['OPENAI_API_KEY'] = open("key").read()
@@ -24,7 +28,10 @@ else:
     print("[WARN] No OpenAI API key file found.")
 
 def llava(image, text, max_new_tokens=384):
-    assert load_llava, "`load_llava` was not set to True, so the llava models are not loaded."
+    global llava_model, llava_processor
+    
+    if llava_model is None:
+        load_llava()
 
     prompt = f"<image>{text}"
     inputs = llava_processor(text=prompt, images=image, return_tensors="pt").to('cuda')

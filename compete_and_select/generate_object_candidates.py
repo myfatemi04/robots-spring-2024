@@ -25,8 +25,11 @@ from PIL import Image
 
 from transformers import Owlv2Processor, Owlv2ForObjectDetection
 
-processor = Owlv2Processor.from_pretrained("google/owlv2-base-patch16-ensemble")
-model = Owlv2ForObjectDetection.from_pretrained("google/owlv2-base-patch16-ensemble").to("cuda")
+model_name = 'google/owlv2-large-patch14-ensemble'
+# Faster
+# model_name = "google/owlv2-base-patch16-ensemble"
+processor = Owlv2Processor.from_pretrained(model_name)
+model = Owlv2ForObjectDetection.from_pretrained(model_name).to("cuda")
 
 def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
     plt.rcParams['figure.dpi'] = 128
@@ -85,6 +88,7 @@ def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
         # let the caller do show()
         pass
 
+@torch.no_grad()
 def detect(image, label):
     start = time.time()
     inputs = processor(text=[label.lower()], images=image, return_tensors="pt").to("cuda")
