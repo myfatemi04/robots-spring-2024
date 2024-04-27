@@ -10,6 +10,9 @@ class StatefulLanguageModelProgramExecutor:
     def __init__(self, vars = None):
         self.vars_ptr = {'vars': {**(vars or {})}}
 
+    def update(self, **vars):
+        self.vars_ptr['vars'].update(vars)
+
     def check(self, source: str):
         # same checks as those made by voxposer
         assert 'import' not in source, "Cannot import any new libraries"
