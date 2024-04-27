@@ -86,7 +86,7 @@ def scale_image(image, max_dim=1024):
         image = image.resize((new_width, new_height), Image.BICUBIC)
     return image
 
-def image_message(image):
+def image_message(image: Image.Image):
     return {
         "type": "image_url",
         "image_url": {

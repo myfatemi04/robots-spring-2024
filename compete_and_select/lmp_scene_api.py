@@ -12,6 +12,9 @@ from panda import Panda
 from rotation_utils import vector2quat
 from scipy.spatial.transform import Rotation
 from functools import cached_property
+from lmp_planner import LanguageModelPlanner
+from openai import OpenAI
+from vlms import image_message
 
 pcd_segmenter = segment_point_cloud.SamPointCloudSegmenter(device='cuda', render_2d_results=False)
 
@@ -46,12 +49,40 @@ class Object:
         return grasps
 
 class Scene:
-    def __init__(self, imgs, pcds, view_names):
+    def __init__(self, imgs, pcds, view_names, lmp_planner=None, selection_method_for_choose=None):
         self.imgs: List[PIL.Image.Image] = imgs
         self.pcds: List[np.ndarray] = pcds
         self.view_names = view_names
+        self.selection_method_for_choose = selection_method_for_choose or ('human' if lmp_planner is None else 'vlm')
+        self.lmp_planner = lmp_planner
+
+    def _choose_with_vlm(self, annotated_image, object_type, purpose):
+        client = OpenAI()
+        task = 'put the blue block into the white cup'
+        completion = client.chat.completions.create([
+            {"role": "system", "content":
+             "You are an assistant which helps robots make motion plans. In each image, a set of objects the robot could feasibly interact with "
+             "are shown with bounding boxes. Next to each bounding box is a number which uniquely identifies the object. You help the robot choose "
+             "particular objects to interact with by outputting the number of the object."
+            },
+            {"role": "user", "content": [
+                image_message(annotated_image),
+                {"type": "text", f"content": f"Task: {task}\nYou are now selecting {object_type} (particularly, {purpose}). What object ID should be selected here? Write 'Object ID: (number 1...n)'."}
+            ]}
+        ])
+        content: str = completion.choices[0].content
+        print("Set-of-marks prompt response:")
+        print(content)
+        index = content.lower().find("id: ")
+        object_id_str = content[index + 4:].strip()
+        object_id_str = object_id_str[:5]
+        # quick and dirty trick
+        object_id_str = ''.join([c for c in object_id_str if c in '0123456789'])
+        print("Object ID string:", object_id_str)
+        object_id = int(object_id)
+        return object_id
     
-    def choose(self, object_name, selection_method='human'):
+    def choose(self, object_type, purpose):
         """
         <lm-docs>
         Allows the robot to choose an object. This returns an `Object` variable,
@@ -73,20 +104,24 @@ class Scene:
         supplementary_point_clouds = [self.pcds[i] for i in range(nviews) if i != base_image_index]
 
         image = self.imgs[base_image_index]
-        detections_2d = detect_objects_2d(image, object_name)
+        detections_2d = detect_objects_2d(image, object_type)
 
         if len(detections_2d) == 0:
             print("No object candidates detected")
             return None
 
-        if selection_method == 'human':
-            plt.title("Please choose an object")
+        if self.selection_method_for_choose == 'human':
+            plt.title(f"Please choose: {purpose}")
             draw_set_of_marks(image, detections_2d, live=True)
             plt.show()
 
             object_id = int(input(f"Choice (choose a number 1 to {len(detections_2d)}, or -1 to cancel): "))
 
-        elif selection_method == 'vlm':
+        elif self.selection_method_for_choose == 'vlm':
+            annotated_image = draw_set_of_marks(image, detections_2d)
+
+            object_id = self._choose_with_vlm(annotated_image, object_type, purpose)
+            
             raise NotImplemented
         
         if object_id == -1:
