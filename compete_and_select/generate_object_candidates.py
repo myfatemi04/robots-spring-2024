@@ -32,11 +32,10 @@ processor = Owlv2Processor.from_pretrained(model_name)
 model = Owlv2ForObjectDetection.from_pretrained(model_name).to("cuda")
 
 def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
-    plt.rcParams['figure.dpi'] = 128
-    plt.clf()
-
-    # plt.title("Results from OWL-ViT")
-    plt.imshow(image)
+    fig = plt.figure(figsize=(8, 6), dpi=128)
+    ax = fig.add_subplot(111)
+    
+    ax.imshow(image)
 
     object_id_counter = 1
     for prediction in predictions:
@@ -49,10 +48,15 @@ def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
         y1 = box['ymin']
         y2 = box['ymax']
         
-        plt.gca().add_patch(patches.Rectangle((x1, y1), x2 - x1, y2 - y1, facecolor='none', edgecolor='r', linewidth=2))
+        ax.add_patch(patches.Rectangle(
+            (x1, y1), x2 - x1, y2 - y1,
+            facecolor='none',
+            edgecolor='r',
+            linewidth=2
+        ))
         
         text_x = x1
-        text_y = max(y1 - 20, 10)
+        text_y = max(y1 - 15, 10)
         
         if (x1 / image.width) > 0.9:
             text_x = x2
@@ -60,33 +64,30 @@ def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
         else:
             horizontalalignment = 'left'
             
-        plt.text(
+        ax.text(
             text_x,
             text_y,
-            f"#{object_id_counter}" if custom_labels is None else custom_labels[object_id_counter - 1],
+            str(object_id_counter) if custom_labels is None else custom_labels[object_id_counter - 1],
             c='white',
-            backgroundcolor=(0.1, 0.1, 0.1, 0.5),
-            horizontalalignment=horizontalalignment
+            backgroundcolor=(0, 0, 0, 1.0),
+            horizontalalignment=horizontalalignment,
+            size=10,
         )
-        plt.axis('off')
         
         object_id_counter += 1
 
-    plt.tight_layout()
+    ax.axis('off')
+    fig.tight_layout()
 
     if not live:
         # Save to PIL image.
         buf = io.BytesIO()
-        plt.savefig(buf, format="png", dpi=128)
+        fig.savefig(buf, format="png", dpi=128, bbox_inches='tight')
         buf.seek(0)
-
         plt.clf()
 
         return Image.open(buf)
-    else:
-        # plt.show()
-        # let the caller do show()
-        pass
+    # let the caller do .show()
 
 @torch.no_grad()
 def detect(image, label):

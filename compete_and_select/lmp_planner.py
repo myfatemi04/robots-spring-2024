@@ -7,6 +7,7 @@ import numpy as np
 import PIL.Image
 from openai import OpenAI
 from vlms import image_message
+from lmp_executor import StatefulLanguageModelProgramExecutor
 
 '''
 We construct a chat history using the system prompt and prev. observations
@@ -17,15 +18,18 @@ with open("prompts/code_generation.txt") as f:
     code_generation_prompt = f.read()
 
 class LanguageModelPlanner:
-    def __init__(self, instructions, root_log_dir='plan_logs'):
+    def __init__(self, robot, instructions: str, root_log_dir: str = 'plan_logs'):
+        self.instructions = instructions
         self.client = OpenAI()
         self.model = 'gpt-4-vision-preview'
+        self.robot = robot
         self.history_simplified = [
             {'role': 'system', 'content': code_generation_prompt.replace("{INSTRUCTIONS}", instructions)},
         ]
         self.history = [
             {'role': 'system', 'content': code_generation_prompt.replace("{INSTRUCTIONS}", instructions)},
         ]
+        self.code_executor = StatefulLanguageModelProgramExecutor()
 
         # choose an output directory
         now = datetime.datetime.now()
@@ -81,46 +85,91 @@ class LanguageModelPlanner:
 
 
     def run_step(self, imgs: List[PIL.Image.Image], pcds: List[np.ndarray]):
-        # from lmp_scene_api import Scene
+        if True:
+            response = self.client.chat.completions.create(
+                model=self.model, messages=[
+                    *self.history_simplified,
+                    {'role': 'user', 'content': [
+                        {"type": "text", "text": "This is the current observation. Please write your plan and code to complete the task. If you believe the task has been completed, call the robot.signal_completed() function."},
+                        image_message(imgs[0])
+                    ]}
+                ]
+            )
 
-        response = self.client.chat.completions.create(
-            model=self.model, messages=[
-                *self.history_simplified,
-                {'role': 'user', 'content': [
+            content = response.choices[0].message.content
+            print(content)
+
+            self.history_simplified.append({
+                # Avoid using too many credits on image inputs
+                "role": "user", "content": "(Previous image observation)",
+            })
+            # We store this slightly different compared to OpenAI format
+            self.history.append({
+                'role': 'user', 'content': [
                     {"type": "text", "text": "This is the current observation."},
-                    image_message(imgs[0])
-                ]}
-            ]
-        )
+                    {"type": "image", "image": imgs[0]}
+                ]
+            })
+            self.history_simplified.append({
+                "role": "assistant", "content": content,
+            })
+            self.history.append({
+                "role": "assistant", "content": content,
+            })
 
-        content = response.choices[0].message.content
-        print(content)
+            self.save()
 
-        self.history_simplified.append({
-            # Avoid using too many credits on image inputs
-            "role": "user", "content": "(Previous image observation)",
-        })
-        # We store this slightly different compared to OpenAI format
-        self.history.append({
-            'role': 'user', 'content': [
-                {"type": "text", "text": "This is the current observation."},
-                {"type": "image", "image": imgs[0]}
-            ]
-        })
-        self.history_simplified.append({
-            "role": "assistant", "content": content,
-        })
-
-        self.save()
+            # find the code block in the language model's response
+            code_start = content.find("```python") + 9
+            if code_start != -1:
+                code_end = content.find("```", code_start)
+            else:
+                code_end = -1
+            if code_start == -1 or code_end == -1:
+                print("ERROR: Could not find code block in response")
+                # just add a warning message in the history and hopefully the llm will correct its mistake next time
+                self.history.append({"role": "system", "content": "Please include a properly-formatted code block that begins with \"```python\" and ends with \"```\"."})
+                self.history_simplified.append({"role": "system", "content": "Please include a properly-formatted code block that begins with \"```python\" and ends with \"```\"."})
+                input("Operator press enter to continue execution.")
+                return
+            
+            code = content[code_start:code_end]
+        
+        print("Extracted code segment:")
+        print(code)
+        if 'y' != input("OK to execute this code? (y/n): "):
+            print("Ignoring this code.")
+            return
 
         # from here, we create the Scene object, which we can pass to the LM planner
+        from lmp_scene_api import Scene
+
+        scene = Scene(imgs, pcds, [f'img{i}' for i in range(1, 1 + len(imgs))], self, 'vlm')
+
+        # run the code
+        self.code_executor.update(scene=scene, robot=self.robot)
+        success, stack_trace = self.code_executor.execute(code)
+        print(success)
+        print(stack_trace)
 
 # test the LMP planner
 def main():
     from rgbd import RGBD
-    
+    from lmp_scene_api import Robot
+    from rotation_utils import vector2quat
+    import matplotlib
+
+    matplotlib.use("Qt5agg") # required so we don't crash for some reason
+
     rgbd = RGBD(num_cameras=1)
-    planner = LanguageModelPlanner("Put the blue block into the white cup")
+    robot = Robot()
+    planner = LanguageModelPlanner(robot, "Put the apple in the mug")
+
+    print("Resetting robot position...")
+    robot.move_to([0.4, 0, 0.4], orientation=vector2quat(claw=[0, 0, -1], right=[0, -1, 0]))
+    robot.start_grasp()
+    robot.stop_grasp()
+    print("Robot position reset.")
 
     try:
         rgbs, pcds = rgbd.capture()

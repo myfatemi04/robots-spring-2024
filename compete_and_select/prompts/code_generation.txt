@@ -34,17 +34,19 @@ Returns:
 
 Methods:
 
-1. `robot.move_to(x, y, z)`: Moves the robot arm's hand to a specified location.
+1. `robot.move_to([x, y, z])`: Moves the robot arm's hand to a specified location.
 Parameters:
- - x, y, z: The 3D position for the robot's gripper to move to.
+ - [x, y, z]: The 3D position for the robot's gripper to move to.
  
-2. `robot.move_by(dx, dy, dz)`: Moves the robot arm's hand by a specific relative amount (in meters).
+2. `robot.move_by([dx, dy, dz])`: Moves the robot arm's hand by a specific relative amount (in meters).
 
 3. `robot.grasp(object)`: Grasps an object.
 Parameters: 
  - `object`, a variable of type `Object` (which is an item of the list returned by `scene.detect`)
 
 4. `robot.release()`: Releases the grasped object.
+
+5. `robot.signal_completed()`: Use this ONLY if, after looking at the image, there appears to be no more work to do.
 
 # Examples
 
@@ -77,10 +79,10 @@ stack_up = scene.choose('cup', 'cup to place on bottom cup')
 robot.grasp(stack_cup)
 
 # Move the robot's arm up,
-robot.move_by(0, 0, 0.3)
+robot.move_by([0, 0, 0.3])
 
 # center it above the other cup, and
-robot.move_to(base_cup.centroid[0], base_cup.centroid[1], base_cup.centroid[2] + 0.2)
+robot.move_to([base_cup.centroid[0], base_cup.centroid[1], base_cup.centroid[2] + 0.2])
 
 # place the cup we are holding
 robot.release()

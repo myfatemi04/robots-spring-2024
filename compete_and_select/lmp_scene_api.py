@@ -49,7 +49,7 @@ class Object:
         return grasps
 
 class Scene:
-    def __init__(self, imgs, pcds, view_names, lmp_planner=None, selection_method_for_choose=None):
+    def __init__(self, imgs, pcds, view_names, lmp_planner: LanguageModelPlanner = None, selection_method_for_choose=None):
         self.imgs: List[PIL.Image.Image] = imgs
         self.pcds: List[np.ndarray] = pcds
         self.view_names = view_names
@@ -58,8 +58,8 @@ class Scene:
 
     def _choose_with_vlm(self, annotated_image, object_type, purpose):
         client = OpenAI()
-        task = 'put the blue block into the white cup'
-        completion = client.chat.completions.create([
+        task = self.lmp_planner.instructions
+        completion = client.chat.completions.create(model='gpt-4-vision-preview', messages=[
             {"role": "system", "content":
              "You are an assistant which helps robots make motion plans. In each image, a set of objects the robot could feasibly interact with "
              "are shown with bounding boxes. Next to each bounding box is a number which uniquely identifies the object. You help the robot choose "
@@ -67,10 +67,10 @@ class Scene:
             },
             {"role": "user", "content": [
                 image_message(annotated_image),
-                {"type": "text", f"content": f"Task: {task}\nYou are now selecting {object_type} (particularly, {purpose}). What object ID should be selected here? Write 'Object ID: (number 1...n)'."}
+                {"type": "text", "text": f"Task: {task}\nSelect the box corresponding to {purpose}. What object ID should be selected here? Write 'Object ID: (number 1...n)'."}
             ]}
-        ])
-        content: str = completion.choices[0].content
+        ], temperature=0)
+        content: str = completion.choices[0].message.content
         print("Set-of-marks prompt response:")
         print(content)
         index = content.lower().find("id: ")
@@ -79,7 +79,7 @@ class Scene:
         # quick and dirty trick
         object_id_str = ''.join([c for c in object_id_str if c in '0123456789'])
         print("Object ID string:", object_id_str)
-        object_id = int(object_id)
+        object_id = int(object_id_str)
         return object_id
     
     def choose(self, object_type, purpose):
@@ -106,6 +106,31 @@ class Scene:
         image = self.imgs[base_image_index]
         detections_2d = detect_objects_2d(image, object_type)
 
+        # filter out detections that are not in the scene
+        filtered_detections = []
+        for detection in detections_2d:
+            box = detection['box']
+            box = {k: int(v) for k, v in box.items()}
+            pts = base_point_cloud[box['ymin']:box['ymax'], box['xmin']:box['xmax']]
+            valid = ~(pts == -10000).any(axis=-1)
+            pts = pts[valid]
+            # first, if an object is out of range, there will not be any associated points
+            if len(pts) < 10:
+                print("filtered out because not enough valid points from point cloud")
+                continue
+            # then, we can count how many points are in bounds
+            pts_flat = pts.reshape(-1, 3)
+            in_bounds_pts = (pts_flat[:, 0] > -0.1) & (np.abs(pts_flat[:, 1]) < 3) & (pts_flat[:, 2] > -0.1)
+            if (in_bounds_pts.sum() < 10):
+                print("filtered out because not enough in-bounds points")
+                print(in_bounds_pts)
+                print(pts_flat)
+                continue
+            
+            filtered_detections.append(detection)
+
+        detections_2d = filtered_detections
+        
         if len(detections_2d) == 0:
             print("No object candidates detected")
             return None
@@ -118,11 +143,13 @@ class Scene:
             object_id = int(input(f"Choice (choose a number 1 to {len(detections_2d)}, or -1 to cancel): "))
 
         elif self.selection_method_for_choose == 'vlm':
+            plt.title(f"VLM is choosing: {purpose}")
+            draw_set_of_marks(image, detections_2d, live=True)
+            plt.show()
+
             annotated_image = draw_set_of_marks(image, detections_2d)
 
             object_id = self._choose_with_vlm(annotated_image, object_type, purpose)
-            
-            raise NotImplemented
         
         if object_id == -1:
             print("Cancelled by selector")
@@ -162,6 +189,10 @@ class Scene:
 
 class Robot(Panda):
     grasping = False
+
+    def signal_completed(self):
+        print("LLM has signaled that the task has been completed")
+        input("Operator press enter to continue.")
 
     def grasp(self, object: Object):
         assert not self.grasping, "Robot is currently in a `grasping` state, and cannot grasp another object. If you believe this is in error, call `robot.release()`."

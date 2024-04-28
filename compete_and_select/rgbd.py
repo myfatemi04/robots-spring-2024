@@ -19,8 +19,7 @@ apriltag_object_points = np.array([
     [0, +1/2, 0],
     [0, -1/2, 0],
 ]).astype(np.float32) * 0.1778
-zbottom = 0.02
-apriltag_object_points[:, 2] = zbottom
+apriltag_object_points[: 0] += 0.025
 
 def enumerate_cameras(num_cameras=2):
     if pyk4a.connected_device_count() < num_cameras:

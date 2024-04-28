@@ -17,9 +17,9 @@ class Panda:
             port=50052,
         )
 
-        ROBOT_CONTROL_X_BIAS = 0.18
-        ROBOT_CONTROL_Y_BIAS = 0.0
-        ROBOT_CONTROL_Z_BIAS = 0.10
+        ROBOT_CONTROL_X_BIAS = 0.08 # orig 0.18
+        ROBOT_CONTROL_Y_BIAS = -0.021 # orig 0
+        ROBOT_CONTROL_Z_BIAS = 0.096 # orig 0.1
         self.movement_bias = torch.tensor([ROBOT_CONTROL_X_BIAS, ROBOT_CONTROL_Y_BIAS, ROBOT_CONTROL_Z_BIAS]).float()
         # self.rotation_bias = Rotation.from_quat(np.array([0, 0, math.sin(math.pi/2), math.cos(math.pi/2)]))
         self.rotation_bias = Rotation.from_matrix(np.array([
