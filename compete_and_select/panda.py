@@ -7,6 +7,12 @@ import time
 
 class Panda:
     def __init__(self, polymetis_server_ip="192.168.1.222"):
+        if polymetis_server_ip == '<mock>':
+            self.mock = True
+            return
+        else:
+            self.mock = False
+
         self.robot = polymetis.RobotInterface(
             ip_address=polymetis_server_ip,
             port=50051,
@@ -37,10 +43,13 @@ class Panda:
         self.time_to_go = 8
 
     def get_pos(self):
+        assert not self.mock, "Cannot get position in mock mode"
         pos, rotation = self.robot.get_ee_pose()
         return (pos - self.movement_bias, rotation)
 
     def move_to(self, pos, orientation=None, **kwargs):
+        if self.mock: return
+        
         pos = torch.tensor(pos).float()
 
         if orientation is not None:
@@ -52,10 +61,14 @@ class Panda:
         self.robot.move_to_ee_pose(pos + self.movement_bias, orientation, time_to_go=self.time_to_go, **kwargs)
         
     def move_by(self, pos, **kwargs):
+        if self.mock: return
+
         pos = torch.tensor(pos).float()
         self.robot.move_to_ee_pose(pos, delta=True, time_to_go=self.time_to_go, **kwargs)
 
     def rotate_to(self, quat, **kwargs):
+        if self.mock: return
+
         quat = torch.tensor(quat).float()
         pos, _ = self.robot.get_ee_pose()
 
@@ -70,15 +83,21 @@ class Panda:
         self.robot.move_to_ee_pose(pos, quat, time_to_go=self.time_to_go, **kwargs)
 
     def rotate_by(self, quat):
+        if self.mock: return
+
         quat = torch.tensor(quat).float()
         zero = torch.tensor([0, 0, 0]).float()
         self.robot.move_to_ee_pose(zero, quat, time_to_go=self.time_to_go, delta=True)
 
     def start_grasp(self):
+        if self.mock: return
+
         # speed, force, grasp width
         self.gripper.grasp(2, 1.0, 0)
         time.sleep(0.5)
 
     def stop_grasp(self):
+        if self.mock: return
+
         self.gripper.grasp(2, 1.0, 0.08)
         time.sleep(0.5)

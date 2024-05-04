@@ -162,8 +162,8 @@ def main():
     matplotlib.use("Qt5agg") # required so we don't crash for some reason
 
     rgbd = RGBD(num_cameras=1)
-    robot = Robot()
-    planner = LanguageModelPlanner(robot, "Put the apple in the mug")
+    robot = Robot(polymetis_server_ip='<mock>')
+    planner = LanguageModelPlanner(robot, "Put a piece of candy in the cup")
 
     print("Resetting robot position...")
     robot.move_to([0.4, 0, 0.4], orientation=vector2quat(claw=[0, 0, -1], right=[0, -1, 0]))

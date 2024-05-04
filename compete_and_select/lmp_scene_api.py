@@ -6,8 +6,8 @@ import numpy as np
 import PIL.Image
 import segment_point_cloud
 from detect_grasps import detect_grasps
-from generate_object_candidates import detect as detect_objects_2d
-from generate_object_candidates import draw_set_of_marks
+from object_detection_utils import draw_set_of_marks
+from detect_objects_groundingdino import detect as detect_objects_2d
 from panda import Panda
 from rotation_utils import vector2quat
 from scipy.spatial.transform import Rotation
