@@ -8,6 +8,7 @@ import PIL.Image
 from openai import OpenAI
 from vlms import image_message
 from lmp_executor import StatefulLanguageModelProgramExecutor
+from memory_bank_v2 import MemoryBank
 
 '''
 We construct a chat history using the system prompt and prev. observations
@@ -18,7 +19,7 @@ with open("prompts/code_generation.txt") as f:
     code_generation_prompt = f.read()
 
 class LanguageModelPlanner:
-    def __init__(self, robot, instructions: str, root_log_dir: str = 'plan_logs'):
+    def __init__(self, robot, instructions: str, root_log_dir: str = 'plan_logs', memory_bank: MemoryBank = None):
         self.instructions = instructions
         self.client = OpenAI()
         self.model = 'gpt-4-vision-preview'
@@ -37,6 +38,8 @@ class LanguageModelPlanner:
         self.root_log_dir = root_log_dir
         self.log_name = log_name
         self.log_dir = os.path.join(root_log_dir, log_name)
+        self.memory_bank = memory_bank or MemoryBank()
+        self.prev_planning = None
 
         os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(os.path.join(self.log_dir, "images"), exist_ok=True)
@@ -96,8 +99,9 @@ class LanguageModelPlanner:
                 ]
             )
 
-            content = response.choices[0].message.content
-            print(content)
+            planning = response.choices[0].message.content
+            self.prev_planning = planning
+            print(planning)
 
             self.history_simplified.append({
                 # Avoid using too many credits on image inputs
@@ -111,18 +115,18 @@ class LanguageModelPlanner:
                 ]
             })
             self.history_simplified.append({
-                "role": "assistant", "content": content,
+                "role": "assistant", "content": planning,
             })
             self.history.append({
-                "role": "assistant", "content": content,
+                "role": "assistant", "content": planning,
             })
 
             self.save()
 
             # find the code block in the language model's response
-            code_start = content.find("```python") + 9
+            code_start = planning.find("```python") + 9
             if code_start != -1:
-                code_end = content.find("```", code_start)
+                code_end = planning.find("```", code_start)
             else:
                 code_end = -1
             if code_start == -1 or code_end == -1:
@@ -133,7 +137,7 @@ class LanguageModelPlanner:
                 input("Operator press enter to continue execution.")
                 return
             
-            code = content[code_start:code_end]
+            code = planning[code_start:code_end]
         
         print("Extracted code segment:")
         print(code)

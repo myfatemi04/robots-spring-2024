@@ -1,4 +1,5 @@
 # from profile import profile
+from functools import cached_property
 from typing import List
 
 import matplotlib.pyplot as plt
@@ -6,14 +7,15 @@ import numpy as np
 import PIL.Image
 import segment_point_cloud
 from detect_grasps import detect_grasps
+# from detect_objects_groundingdino import detect as detect_objects_2d
+from generate_object_candidates import detect as detect_objects_2d
+from select_object_v2 import describe_objects_with_retrievals
+from lmp_planner import LanguageModelPlanner
 from object_detection_utils import draw_set_of_marks
-from detect_objects_groundingdino import detect as detect_objects_2d
+from openai import OpenAI
 from panda import Panda
 from rotation_utils import vector2quat
 from scipy.spatial.transform import Rotation
-from functools import cached_property
-from lmp_planner import LanguageModelPlanner
-from openai import OpenAI
 from vlms import image_message
 
 pcd_segmenter = segment_point_cloud.SamPointCloudSegmenter(device='cuda', render_2d_results=False)
@@ -83,6 +85,151 @@ class Scene:
         return object_id
     
     def choose(self, object_type, purpose):
+        base_image_index = 0
+
+        base_rgb_image = self.imgs[base_image_index]
+        base_point_cloud = self.pcds[base_image_index]
+        nviews = len(self.imgs)
+        supplementary_rgb_images = [self.imgs[i] for i in range(nviews) if i != base_image_index]
+        supplementary_point_clouds = [self.pcds[i] for i in range(nviews) if i != base_image_index]
+
+        detections_2d = detect_objects_2d(base_rgb_image, object_type)
+
+        if len(detections_2d) == 0:
+            print("<NO DETECTIONS>")
+            return None
+
+        # recall the relevant memories
+        description, nretrievals_per_object = describe_objects_with_retrievals(detections_2d, self.lmp_planner.memory_bank)
+
+        object_scores = []
+
+        if max(nretrievals_per_object) == 0:
+            # we don't remember anything in particular about the objects in the scene
+            object_scores = [0] * len(nretrievals_per_object)
+        else:
+            # have an LLM filtering step for these memories
+            prompt = f"""
+We are trying to achieve the following task:
+{self.lmp_planner.instructions}
+
+You have written the following plan:
+\"""
+{self.lmp_planner.prev_planning}
+\"""
+
+We are in the middle of the code's execution. The line we are currently executing is
+`scene.choose({object_type}, {purpose})`.
+
+This has resulted in the following list of detections:
+{description}
+
+Rank the objects in the scene according to how likely they are to be the best choice. Respond with three lists: 'Likely', 'Neutral', and 'Unlikely'.
+Format your list as follows:
+```
+- likely: [1, 2, 3]
+- neutral: [4, 5, 6]
+- unlikely: [7, 8, 9]
+```
+""".strip()
+            print("Prompt:")
+            print(prompt)
+
+            cmpl = self.lmp_planner.client.chat.completions.create(
+                model='gpt-4-turbo',
+                messages=[
+                    {"role": "system", "content": "You are a helpful human assistant who uses a robot API to help robots make motion plans."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            message_content = cmpl.choices[0].message.content
+            print(message_content)
+            object_scores = [int(x) for x in input("type the object scores inferred from above. 1 = likely, 0 = neutral, -1 = unlikely:").split(" ")]
+
+        print("resulting object scores:", object_scores)
+
+        # now we make a selection based on these scores
+        # using a softmax-like approach maybe? we want to do some kind
+        # of exploration i would think. this connects to RL if reward = following the human's
+        # instructions accurately. maybe we can try to have the LLM quantify risk and use that
+        # for exploration; but could leave that to future work.
+        # - boltzmann exploration (with a low temperature)
+        # - epsilon-greedy
+        # also, sometimes when the human provides assumptions, it is possible that:
+        # - the robot cannot physically execute the skill
+        # - the robot fails to execute the skill
+        # in cases where the human was wrong and the object was incorrectly used,
+        # maybe we should have a way to record that.
+
+        # i will use boltzmann exploration with a low temperature (maybe we can increase the temperature
+        # as we get more data? would like to be able to automatically calibrate the temperature based on
+        # confidence level though.)
+        tau = 0.1
+        object_scores = np.array(object_scores)
+        object_scores = np.exp(object_scores / tau)
+        object_scores /= object_scores.sum()
+        # choose object
+        object_id = np.random.choice(len(object_scores), p=object_scores)
+
+        # now we can try to incorporate human feedback
+        annots = draw_set_of_marks(base_rgb_image, detections_2d)
+        print(f"Please look at the set of objects. Here, we have selected {object_id+1}.")
+        print(f"Is this acceptable? If not, is any other object acceptable instead?")
+        # print("However, we would like to know which objects would have been equivalently acceptable or should have been avoided.")
+        plt.title("Available objects")
+        plt.imshow(annots)
+        plt.axis('off')
+        plt.show()
+        acceptable = 'y' == input("Is this acceptable? (y/n): ")
+        if not acceptable:
+            object_id = int(input("Which object should be selected instead? (1-indexed): ")) - 1
+            if object_id >= 0:
+                # now we try to create a memory from this human feedback
+                # however we gotta be real that most people will ignore this?
+                reason_unacceptable = input("Why was the original choice unacceptable? ")
+                # from here we can try to infer some information about that object
+                # it's also possible that it's not an intrinsic property of the object,
+                # but rather something extrinsic
+                prompt = f"""
+We are trying to achieve the following task:
+{self.lmp_planner.instructions}
+
+You have written the following plan:
+\"""
+{self.lmp_planner.prev_planning}
+\"""
+
+We are in the middle of the code's execution. The line we are currently executing is
+`scene.choose({object_type}, {purpose})`.
+
+You originally selected object {object_id + 1} as the best choice. However, the selector has indicated that this object is unacceptable. They have provided the following reason:
+{reason_unacceptable}
+
+What relevant information should you remember about object {object_id + 1} in the future? Write a sentence or two.
+""".strip()
+            print("Prompt:")
+            print(prompt)
+
+            cmpl = self.lmp_planner.client.chat.completions.create(
+                model='gpt-4-turbo',
+                messages=[
+                    {"role": "system", "content": "You are a helpful human assistant who uses a robot API to help robots make motion plans."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            to_remember = cmpl.choices[0].message.content
+            print("To remember:", to_remember)
+
+        detection = detections_2d[object_id]
+        box = detection['box']
+        x1, y1, x2, y2 = box['xmin'], box['ymin'], box['xmax'], box['ymax']
+        segmented_pcd_xyz, segmented_pcd_color, _segmentation_masks = \
+            pcd_segmenter.segment(base_rgb_image, base_point_cloud, [x1, y1, x2, y2], supplementary_rgb_images, supplementary_point_clouds)
+        
+        return Object(segmented_pcd_xyz, segmented_pcd_color, clip_features=None)
+
+
+    def choose_v0(self, object_type, purpose):
         """
         <lm-docs>
         Allows the robot to choose an object. This returns an `Object` variable,
@@ -199,6 +346,11 @@ class Robot(Panda):
 
         # use simplest grasping metric: lowest alpha [surface misalignment] score
         grasps = object.generate_grasps() # each is (alpha, start, end)
+
+        if len(grasps) == 0:
+            # huhhh
+            print("<warn: no grasps found?>")
+            return
 
         best_grasp = None
         best_score = None
