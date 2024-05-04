@@ -14,10 +14,10 @@ def describe_objects_with_retrievals(image, detections, object_memory_bank):
         
         prompt_string += f"({i + 1}) at ({center_x:.0f}, {center_y:.0f})\n"
         
-        retrievals = object_memory_bank.retrieve(detection['emb'], threshold=0.8)
+        retrievals = object_memory_bank.retrieve(detection['emb'].detach().cpu().numpy(), threshold=0.8)
         if len(retrievals) > 0:
             for score, memory in retrievals:
-                addl = f" - Note: This object has a visual similarity score of {score:.2f} to something which you noted, \"{memory.salient_information}\".\n"
+                addl = f" - Note: This object has a visual similarity score of {score:.2f} to something which you noted, \"{memory.value}\".\n"
                 prompt_string += addl
                 
     return prompt_string

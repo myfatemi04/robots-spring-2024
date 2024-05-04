@@ -7,29 +7,36 @@ import torch
 import torchvision.ops as ops
 from PIL import Image
 
-# Transformers 4.33 doesn't have OwlViT as a pipeline, but we can use it manually.
-# from transformers import pipeline
-
-# checkpoint = "google/owlv2-base-patch16-ensemble"
-# detector = pipeline(model=checkpoint, task="zero-shot-object-detection", device="cuda")
-# import transformers
-# import transformers.processing_utils
-# from owlv2 import Owlv2Processor, Owlv2ForObjectDetection, Owlv2ImageProcessor
-
-# def set(x, y, z):
-#     x[y] = z
-
-# set(transformers.processing_utils.transformers_module._objects, "Owlv2Processor", Owlv2Processor)
-# set(transformers.processing_utils.transformers_module._objects, "Owlv2ImageProcessor", Owlv2ImageProcessor)
-# set(transformers.processing_utils.transformers_module._objects, "Owlv2ForObjectDetection", Owlv2ForObjectDetection)
-
-from transformers import Owlv2Processor, Owlv2ForObjectDetection
+from transformers import Owlv2Processor, Owlv2ForObjectDetection, CLIPVisionModelWithProjection, CLIPProcessor
 
 model_name = 'google/owlv2-large-patch14-ensemble'
 # Faster
 # model_name = "google/owlv2-base-patch16-ensemble"
 processor = Owlv2Processor.from_pretrained(model_name)
 model = Owlv2ForObjectDetection.from_pretrained(model_name).to("cuda")
+
+clip_vision_model = CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").cuda()
+clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
+
+# create clip embeddings for objects
+def add_object_clip_embeddings(im1, dets1):
+    with torch.no_grad():
+        for det in dets1:
+            box = det['box']
+            width = box['xmax'] - box['xmin']
+            height = box['ymax'] - box['ymin']
+            center_x = (box['xmax'] + box['xmin']) / 2
+            center_y = (box['ymax'] + box['ymin']) / 2
+            # ensure square image to prevent warping
+            size = max(224, width, height)
+            object_img = im1.crop((center_x-size/2, center_y-size/2, center_x+size/2, center_y+size/2))
+            object_emb_output = clip_vision_model(**clip_processor(images=[object_img], return_tensors='pt').to('cuda'))
+            object_emb = object_emb_output.image_embeds[0]
+
+            det['emb'] = object_emb
+            # det['desc'] = image_to_text(object_img)
+        
+    return dets1
 
 def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
     fig = plt.figure(figsize=(8, 6), dpi=128)
@@ -89,11 +96,11 @@ def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
         return Image.open(buf)
     # let the caller do .show()
 
-@torch.no_grad()
 def detect(image, label):
     start = time.time()
-    inputs = processor(text=[label.lower()], images=image, return_tensors="pt").to("cuda")
-    outputs = model(**inputs)
+    with torch.no_grad():
+        inputs = processor(text=[label.lower()], images=image, return_tensors="pt").to("cuda")
+        outputs = model(**inputs)
 
     # Target image sizes (height, width) to rescale box predictions [batch_size, 2]
     target_sizes = torch.Tensor([image.size[::-1]])
@@ -150,4 +157,8 @@ def detect(image, label):
     # do not accept boxes that fill a whole quadrant of space
     keep = {i for i in keep if box_sizes[i] < 0.25}
 
-    return [prediction for (i, prediction) in enumerate(predictions) if i in keep]
+    return add_object_clip_embeddings(image, [
+        prediction
+        for (i, prediction) in enumerate(predictions)
+        if i in keep
+    ])

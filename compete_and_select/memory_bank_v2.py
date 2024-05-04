@@ -23,16 +23,21 @@ class MemoryKey:
                 len(self.positive_examples) + len(self.negative_examples)
             )
         ])
-        svm = SVC()
+        X = np.ascontiguousarray(X)
+        y = np.ascontiguousarray(y)
+        svm = SVC(probability=True, class_weight={
+            0: len(self.positive_examples)/len(X),
+            1: len(self.negative_examples)/len(X),
+        }, kernel='linear')
         svm.fit(X, y)
         return svm
         
     # only returns the positive logprob
     def get_logprobs(self, X):
-        return self.svm.predict_log_proba(X)[..., 1]
+        return self.svm.predict_log_proba(X)[..., 0]
     
     def get_probs(self, X):
-        return self.svm.predict_proba(X)[..., 1]
+        return self.svm.predict_proba(X)[..., 0]
 
 @dataclass
 class Memory:
@@ -53,7 +58,7 @@ class MemoryBank:
     
     def retrieve(self, object_clip_embedding: np.ndarray, topk=None, threshold=None):
         similarity_scores = sorted([
-            (memory.key.get_probs(object_clip_embedding), i)
+            (memory.key.get_probs(object_clip_embedding[None])[0], i)
             for i, memory in enumerate(self.memories)
         ], reverse=True)
         
@@ -64,5 +69,5 @@ class MemoryBank:
             or (threshold is not None and score >= threshold)
         ]
     
-    def add_object_memory(self, memory: Memory):
+    def store(self, memory: Memory):
         self.memories.append(memory)
