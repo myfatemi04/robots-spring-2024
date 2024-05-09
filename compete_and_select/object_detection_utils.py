@@ -10,7 +10,7 @@ clip_vision_model = CLIPVisionModelWithProjection.from_pretrained("openai/clip-v
 clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
 
 # create clip embeddings for objects
-def add_object_clip_embeddings(image, detections):
+def add_object_clip_embeddings(image: Image.Image, detections):
     with torch.no_grad():
         for detection in detections:
             box = detection['box']
@@ -21,10 +21,13 @@ def add_object_clip_embeddings(image, detections):
             # ensure square image to prevent warping
             size = max(224, width, height)
             object_img = image.crop((center_x-size/2, center_y-size/2, center_x+size/2, center_y+size/2))
-            object_emb_output = clip_vision_model(**clip_processor(images=[object_img], return_tensors='pt').to('cuda'))
-            object_emb = object_emb_output.image_embeds[0]
 
-            detection['emb'] = object_emb
+            rotated_1 = object_img.rotate(5, expand=False)
+            rotated_2 = object_img.rotate(-5, expand=False)
+
+            object_emb_output = clip_vision_model(**clip_processor(images=[object_img, rotated_1, rotated_2], return_tensors='pt').to('cuda'))
+            detection['emb'] = object_emb_output.image_embeds[0].detach().cpu().numpy()
+            detection['emb_augmented'] = [x.detach().cpu().numpy() for x in object_emb_output.image_embeds]
         
     return detections
 

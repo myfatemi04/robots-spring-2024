@@ -9,14 +9,15 @@ import segment_point_cloud
 from detect_grasps import detect_grasps
 # from detect_objects_groundingdino import detect as detect_objects_2d
 from generate_object_candidates import detect as detect_objects_2d
-from select_object_v2 import describe_objects_with_retrievals
 from lmp_planner import LanguageModelPlanner
 from object_detection_utils import draw_set_of_marks
 from openai import OpenAI
 from panda import Panda
 from rotation_utils import vector2quat
 from scipy.spatial.transform import Rotation
+from select_object_v2 import describe_objects_with_retrievals
 from vlms import image_message
+from memory_bank_v2 import Memory, MemoryKey
 
 pcd_segmenter = segment_point_cloud.SamPointCloudSegmenter(device='cuda', render_2d_results=False)
 
@@ -100,7 +101,9 @@ class Scene:
             return None
 
         # recall the relevant memories
-        description, nretrievals_per_object = describe_objects_with_retrievals(detections_2d, self.lmp_planner.memory_bank)
+        description, nretrievals_per_object = describe_objects_with_retrievals(detections_2d, self.lmp_planner.memory_bank, threshold=0)
+        print(description, nretrievals_per_object)
+        print(self.lmp_planner.memory_bank.memories)
 
         object_scores = []
 
@@ -109,11 +112,9 @@ class Scene:
             object_scores = [0] * len(nretrievals_per_object)
         else:
             # have an LLM filtering step for these memories
-            prompt = f"""
-We are trying to achieve the following task:
-{self.lmp_planner.instructions}
-
-You have written the following plan:
+            prompt = f"Task: {self.lmp_planner.instructions}\n\n"
+            if self.lmp_planner.prev_planning is not None:
+                prompt += f"""You have written the following plan:
 \"""
 {self.lmp_planner.prev_planning}
 \"""
@@ -122,10 +123,14 @@ We are in the middle of the code's execution. The line we are currently executin
 `scene.choose({object_type}, {purpose})`.
 
 This has resulted in the following list of detections:
-{description}
-
-Rank the objects in the scene according to how likely they are to be the best choice. Respond with three lists: 'Likely', 'Neutral', and 'Unlikely'.
-Format your list as follows:
+{description}\n\n"""
+            else:
+                prompt += f"""
+The following objects have been detected:
+{description}"""
+                
+            prompt += """Rank the objects in the scene according to how likely they are to be the best choice.
+Respond with three lists: 'likely', 'neutral', and 'unlikely'. Format your list as follows:
 ```
 - likely: [1, 2, 3]
 - neutral: [4, 5, 6]
@@ -182,6 +187,7 @@ Format your list as follows:
         plt.show()
         acceptable = 'y' == input("Is this acceptable? (y/n): ")
         if not acceptable:
+            negative_object_id = object_id
             object_id = int(input("Which object should be selected instead? (1-indexed): ")) - 1
             if object_id >= 0:
                 # now we try to create a memory from this human feedback
@@ -206,9 +212,14 @@ You originally selected object {object_id + 1} as the best choice. However, the 
 {reason_unacceptable}
 
 What relevant information should you remember about object {object_id + 1} in the future? Write a sentence or two.
+Write without referring to "object {object_id + 1}" in particular; the object numbering might change in the future.
+Imagine that this information will show up alongside the same object class in the future when it appears.
 """.strip()
             print("Prompt:")
             print(prompt)
+
+            pos_emb = detections_2d[object_id]['emb_augmented']
+            neg_emb = detections_2d[negative_object_id]['emb_augmented']
 
             cmpl = self.lmp_planner.client.chat.completions.create(
                 model='gpt-4-turbo',
@@ -218,7 +229,19 @@ What relevant information should you remember about object {object_id + 1} in th
                 ]
             )
             to_remember = cmpl.choices[0].message.content
-            print("To remember:", to_remember)
+
+            print("committing to short-term memory:", to_remember)
+            print("positive ID:", object_id)
+            print("negative ID:", negative_object_id)
+
+            # now, we commit this to short-term memory
+            self.lmp_planner.memory_bank.store(Memory(
+                key=MemoryKey(
+                    positive_examples=[*pos_emb],
+                    negative_examples=[*neg_emb],
+                ),
+                value=to_remember,
+            ))
 
         detection = detections_2d[object_id]
         box = detection['box']

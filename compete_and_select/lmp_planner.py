@@ -19,6 +19,8 @@ with open("prompts/code_generation.txt") as f:
     code_generation_prompt = f.read()
 
 class LanguageModelPlanner:
+    # TODO: Turn this into a planning context that abstracts away the notion of a language model to make plans
+    # We can serialize the history every time we run an inference step with the LM.
     def __init__(self, robot, instructions: str, root_log_dir: str = 'plan_logs', memory_bank: MemoryBank = None):
         self.instructions = instructions
         self.client = OpenAI()
