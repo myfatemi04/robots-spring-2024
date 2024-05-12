@@ -55,10 +55,10 @@ def get_object_selection_likelihoods(instructions, working_memory, retrieved_lon
     pass
 
 class Scene:
-    def __init__(self, imgs, pcds, view_names, lmp_planner: Optional[LanguageModelPlanner] = None, selection_method_for_choose=None):
+    def __init__(self, imgs, pcds=None, view_names=None, lmp_planner: Optional[LanguageModelPlanner] = None, selection_method_for_choose=None):
         self.imgs: List[PIL.Image.Image] = imgs
-        self.pcds: List[np.ndarray] = pcds
-        self.view_names = view_names
+        self.pcds: List[Optional[np.ndarray]] = pcds or [None] * len(imgs)
+        self.view_names = view_names or [f'img{i}' for i in range(len(imgs))]
         self.selection_method_for_choose = selection_method_for_choose or ('human' if lmp_planner is None else 'vlm')
         self.lmp_planner = lmp_planner
 
@@ -299,15 +299,19 @@ Imagine that this information will show up alongside the same object class in th
             return None
 
         if self.selection_method_for_choose == 'human':
+            im = draw_set_of_marks(image, detections_2d)
             plt.title(f"Please choose: {purpose}")
-            draw_set_of_marks(image, detections_2d, live=True)
+            plt.imshow(im)
+            plt.axis('off')
             plt.show()
 
             object_id = int(input(f"Choice (choose a number 1 to {len(detections_2d)}, or -1 to cancel): "))
 
         elif self.selection_method_for_choose == 'vlm':
+            im = draw_set_of_marks(image, detections_2d)
             plt.title(f"VLM is choosing: {purpose}")
-            draw_set_of_marks(image, detections_2d, live=True)
+            plt.imshow(im)
+            plt.axis('off')
             plt.show()
 
             annotated_image = draw_set_of_marks(image, detections_2d)
