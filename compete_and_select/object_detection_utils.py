@@ -6,8 +6,10 @@ import PIL.Image as Image
 import torch
 from transformers import CLIPProcessor, CLIPVisionModelWithProjection
 
-clip_vision_model = CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").cuda()
-clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+clip_vision_model: CLIPVisionModelWithProjection = CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").to(device) # type: ignore
+clip_processor: CLIPProcessor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14") # type: ignore
 
 # create clip embeddings for objects
 def add_object_clip_embeddings(image: Image.Image, detections):
@@ -25,7 +27,9 @@ def add_object_clip_embeddings(image: Image.Image, detections):
             rotated_1 = object_img.rotate(5, expand=False)
             rotated_2 = object_img.rotate(-5, expand=False)
 
-            object_emb_output = clip_vision_model(**clip_processor(images=[object_img, rotated_1, rotated_2], return_tensors='pt').to('cuda'))
+            object_emb_output = clip_vision_model(
+                **clip_processor(images=[object_img, rotated_1, rotated_2], return_tensors='pt').to(device) # type: ignore
+            )
             detection['emb'] = object_emb_output.image_embeds[0].detach().cpu().numpy()
             detection['emb_augmented'] = [x.detach().cpu().numpy() for x in object_emb_output.image_embeds]
         
@@ -79,12 +83,9 @@ def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
     ax.axis('off')
     fig.tight_layout()
 
-    if not live:
-        # Save to PIL image.
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=128, bbox_inches='tight')
-        buf.seek(0)
-        plt.clf()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=128, bbox_inches='tight')
+    buf.seek(0)
+    plt.clf()
 
-        return Image.open(buf)
-    # let the caller do .show()
+    return Image.open(buf)

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import torch
 import numpy as np
 from sklearn.svm import SVC
-from typing import Tuple
+from typing import Tuple, List
 
 # https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html#sklearn.svm.SVC.predict
 class MemoryKey:

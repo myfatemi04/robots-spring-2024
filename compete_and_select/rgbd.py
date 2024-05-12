@@ -1,6 +1,4 @@
-import pickle
 import sys
-from typing import List
 import cv2
 
 sys.path.insert(0, "../")
@@ -9,19 +7,10 @@ import apriltag
 sys.path.remove("../")
 
 import numpy as np
-import pyk4a
-
-apriltag_detector = apriltag.apriltag("tag36h11")
-apriltag_object_points = np.array([
-    # order: left bottom, right bottom, right top, left top
-    [1, -1/2, 0],
-    [1, +1/2, 0],
-    [0, +1/2, 0],
-    [0, -1/2, 0],
-]).astype(np.float32) * 0.1778
-apriltag_object_points[: 0] += 0.025
 
 def enumerate_cameras(num_cameras=2):
+    import pyk4a # type: ignore
+
     if pyk4a.connected_device_count() < num_cameras:
         print(f"Error: Not enough K4A devices connected (<{num_cameras}).")
         exit(1)
@@ -34,7 +23,7 @@ def enumerate_cameras(num_cameras=2):
 
     return k4a_device_map
 
-def _color(capture: pyk4a.PyK4ACapture):
+def _color(capture):
     return np.ascontiguousarray(capture.color[..., :3][..., ::-1])
 
 class RGBD:
@@ -56,18 +45,29 @@ class RGBD:
 
         self.cameras = [Camera(k4a) for k4a in k4as]
 
+        self.apriltag_detector = apriltag.apriltag("tag36h11") # type: ignore
+        apriltag_object_points = np.array([
+            # order: left bottom, right bottom, right top, left top
+            [1, -1/2, 0],
+            [1, +1/2, 0],
+            [0, +1/2, 0],
+            [0, -1/2, 0],
+        ]).astype(np.float32) * 0.1778
+        apriltag_object_points[: 0] += 0.025
+        self.apriltag_object_points = apriltag_object_points
+
     def try_calibrate(self, camera_index, image):
         camera = self.cameras[camera_index]
         image_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         try:
-            detections = apriltag_detector.detect(image_gray)
+            detections = self.apriltag_detector.detect(image_gray)
         except RuntimeError:
             print("AprilTag runtime error.", file=sys.stderr)
             detections = []
         if len(detections) == 1:
             detection = detections[0]
             apriltag_image_points = detection['lb-rb-rt-lt']
-            camera.infer_extrinsics(apriltag_image_points, apriltag_object_points)
+            camera.infer_extrinsics(apriltag_image_points, self.apriltag_object_points)
             return True
         return False
 
@@ -93,6 +93,7 @@ class RGBD:
 
             if camera.extrinsic_matrix is not None:
                 point_cloud = camera.transform_sensed_points_to_robot_frame(capture.transformed_depth_point_cloud)
+                assert point_cloud is not None
                 # replace "bad points" with a magic number
                 bad_point_mask = (capture.transformed_depth_point_cloud == np.array([0, 0, 0])).all(axis=-1)
                 point_cloud[bad_point_mask] = np.array([-10000, -10000, -10000])

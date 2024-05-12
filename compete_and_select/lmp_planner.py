@@ -10,7 +10,6 @@ from openai.types.chat import ChatCompletionUserMessageParam as UMessage, ChatCo
 from vlms import image_message, image_url
 from lmp_executor import StatefulLanguageModelProgramExecutor
 from memory_bank_v2 import MemoryBank
-from agent_loop import EventStream
 
 '''
 We construct a chat history using the system prompt and prev. observations
@@ -132,43 +131,43 @@ class LanguageModelPlanner:
 
 
     def run_step(self, imgs: List[PIL.Image.Image], pcds: List[np.ndarray]):
-        planning, code = reason_and_generate_code(self.history_simplified, imgs[0], self.client, self.model)
+        planning, code, raw_result = reason_and_generate_code(self.history_simplified, imgs[0], self.client, self.model)
 
-            self.history_simplified.append({
-                # Avoid using too many credits on image inputs
-                "role": "user", "content": "(Previous image observation)",
-            })
-            # We store this slightly different compared to OpenAI format
-            self.history.append({
-                'role': 'user', 'content': [
-                    {"type": "text", "text": "This is the current observation."},
-                    {"type": "image", "image": imgs[0]}
-                ]
-            })
-            self.history_simplified.append({
-                "role": "assistant", "content": planning,
-            })
-            self.history.append({
-                "role": "assistant", "content": planning,
-            })
+        self.history_simplified.append({
+            # Avoid using too many credits on image inputs
+            "role": "user", "content": "(Previous image observation)",
+        })
+        # We store this slightly different compared to OpenAI format
+        self.history.append({
+            'role': 'user', 'content': [
+                {"type": "text", "text": "This is the current observation."},
+                {"type": "image", "image": imgs[0]}
+            ]
+        })
+        self.history_simplified.append({
+            "role": "assistant", "content": planning,
+        })
+        self.history.append({
+            "role": "assistant", "content": planning,
+        })
 
-            self.save()
+        self.save()
 
-            # find the code block in the language model's response
-            code_start = planning.find("```python") + 9
-            if code_start != -1:
-                code_end = planning.find("```", code_start)
-            else:
-                code_end = -1
-            if code_start == -1 or code_end == -1:
-                print("ERROR: Could not find code block in response")
-                # just add a warning message in the history and hopefully the llm will correct its mistake next time
-                self.history.append({"role": "system", "content": "Please include a properly-formatted code block that begins with \"```python\" and ends with \"```\"."})
-                self.history_simplified.append({"role": "system", "content": "Please include a properly-formatted code block that begins with \"```python\" and ends with \"```\"."})
-                input("Operator press enter to continue execution.")
-                return
-            
-            code = planning[code_start:code_end]
+        # find the code block in the language model's response
+        code_start = planning.find("```python") + 9
+        if code_start != -1:
+            code_end = planning.find("```", code_start)
+        else:
+            code_end = -1
+        if code_start == -1 or code_end == -1:
+            print("ERROR: Could not find code block in response")
+            # just add a warning message in the history and hopefully the llm will correct its mistake next time
+            self.history.append({"role": "system", "content": "Please include a properly-formatted code block that begins with \"```python\" and ends with \"```\"."})
+            self.history_simplified.append({"role": "system", "content": "Please include a properly-formatted code block that begins with \"```python\" and ends with \"```\"."})
+            input("Operator press enter to continue execution.")
+            return
+        
+        code = planning[code_start:code_end]
         
         print("Extracted code segment:")
         print(code)

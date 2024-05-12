@@ -4,12 +4,12 @@ from typing import Optional
 import cv2
 import numpy as np
 import PIL.Image
-import pyk4a
 
 
 class Camera:
-    def __init__(self, k4a: pyk4a.PyK4A):
-        self.k4a = k4a
+    def __init__(self, k4a):
+        import pyk4a # type: ignore
+        self.k4a: pyk4a.PyK4a = k4a
         # Camera parameters
         self.rvec_tvec = None
         self.extrinsic_matrix = None
@@ -19,8 +19,8 @@ class Camera:
         self.prev_capture: Optional[pyk4a.PyK4ACapture] = None
 
     def capture(self):
-        self.prev_capture = self.k4a.get_capture()
-        return self.prev_capture
+        self.prev_capture = val = self.k4a.get_capture()
+        return val
 
     def infer_extrinsics(self, apriltag_points, apriltag_object_points):
         ret, rvec, tvec = cv2.solvePnP(apriltag_object_points, apriltag_points, self.intrinsic_matrix, self.distortion_coefficients)
@@ -33,6 +33,7 @@ class Camera:
 
     def project_points(self, object_points):
         assert self.extrinsic_matrix is not None
+        assert self.rvec_tvec is not None
         
         rvec, tvec = self.rvec_tvec
         points, _jacobian = cv2.projectPoints(object_points, rvec, tvec, self.intrinsic_matrix, self.distortion_coefficients)
@@ -111,13 +112,13 @@ class VirtualCamera:
         self.intrinsic_matrix = None
         self.distortion_coefficients = None
         self.original_calibration = True
-        self.prev_capture: Optional[pyk4a.PyK4ACapture] = None
+        self.prev_capture = None
 
     def capture(self):
         if self.image is not None:
             self.prev_capture = VirtualCapture(color=self.image)
         else:
-            _, image_color = self.video_capture.read()
+            _, image_color = self.video_capture.read() # type: ignore
             self.prev_capture = VirtualCapture(color=image_color)
         return self.prev_capture
 
@@ -132,6 +133,7 @@ class VirtualCamera:
 
     def project_points(self, object_points):
         assert self.extrinsic_matrix is not None
+        assert self.rvec_tvec is not None
         
         rvec, tvec = self.rvec_tvec
         points, _jacobian = cv2.projectPoints(object_points, rvec, tvec, self.intrinsic_matrix, self.distortion_coefficients)
@@ -160,7 +162,8 @@ class VirtualCamera:
         return cv2.undistortPoints(image_points.astype(np.float32), self.intrinsic_matrix, self.distortion_coefficients)
     
     def close(self):
-        self.video_capture.release()
+        if self.video_capture is not None:
+            self.video_capture.release()
 
 def triangulate(camera1: Camera, camera2: Camera, camera1_positions, camera2_positions):
     assert camera1.extrinsic_matrix is not None, "Camera 1 extrinsic matrix has not been calibrated."
@@ -180,6 +183,7 @@ def triangulate(camera1: Camera, camera2: Camera, camera1_positions, camera2_pos
     return triangulated
 
 def get_cameras():
+    import pyk4a # type: ignore
     k4a_devices = [pyk4a.PyK4A(device_id=i) for i in [0, 1]]
     k4a_device_map = {}
     for device in k4a_devices:

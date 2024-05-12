@@ -15,7 +15,7 @@ from transformers import SamModel, SamProcessor
 
 
 class SamPointCloudSegmenter():
-    def __init__(self, device='cpu', render_2d_results=False):
+    def __init__(self, device='cuda' if torch.cuda.is_available() else 'cpu', render_2d_results=False):
         self.model: SamModel = SamModel.from_pretrained("facebook/sam-vit-base").to(device) # type: ignore
         self.processor: SamProcessor = SamProcessor.from_pretrained("facebook/sam-vit-base") # type: ignore
         self.render_2d_results = render_2d_results
@@ -234,7 +234,7 @@ def test():
     fig = plt.figure()
     plt.title("Pre-RANSAC")
     ax = fig.add_subplot(projection='3d')
-    ax.scatter(point_cloud[:, 0], point_cloud[:, 1], point_cloud[:, 2], c=color/255.0, s=0.5)
+    ax.scatter(point_cloud[:, 0], point_cloud[:, 1], point_cloud[:, 2], c=color/255.0, s=0.5) # type: ignore
     set_axes_equal(ax)
     plt.show()
 
@@ -252,7 +252,7 @@ def test():
     fig = plt.figure()
     plt.title("Post-RANSAC")
     ax = fig.add_subplot(projection='3d')
-    ax.scatter(point_cloud[:, 0], point_cloud[:, 1], point_cloud[:, 2], c=color/255.0, s=0.5)
+    ax.scatter(point_cloud[:, 0], point_cloud[:, 1], point_cloud[:, 2], c=color/255.0, s=0.5) # type: ignore
     set_axes_equal(ax)
     plt.show()
 

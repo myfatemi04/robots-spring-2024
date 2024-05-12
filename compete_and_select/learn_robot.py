@@ -1,5 +1,6 @@
 import PIL.Image
 import flask
+import matplotlib.pyplot as plt
 
 def teach_robot():
     # Here, the human provides some direct annotations for what to do (e.g. circling an object and saying what to do with it)
@@ -9,5 +10,4 @@ def teach_robot():
     instructions = "Give me a snack"
     im = PIL.Image.open("IMG_8650.jpeg")
 
-    # generate CLIP embeddings for each part of the image
-
+teach_robot()

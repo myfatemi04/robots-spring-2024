@@ -11,14 +11,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from panda import Panda
-from rgbd import RGBD, get_normal_map
+from rgbd import RGBD
 from scipy.spatial.transform import Rotation
 from transformers import SamModel, SamProcessor
 
-model = SamModel.from_pretrained("facebook/sam-vit-base").cuda()
-processor = SamProcessor.from_pretrained("facebook/sam-vit-base")
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model: SamModel = SamModel.from_pretrained("facebook/sam-vit-base").to(device) # type: ignore
+processor: SamProcessor = SamProcessor.from_pretrained("facebook/sam-vit-base") # type: ignore
 
-def vector2quat(claw, right=None):
+def vector2quat(claw, right):
     claw = claw / np.linalg.norm(claw)
     right = right / np.linalg.norm(right)
 
@@ -29,16 +30,16 @@ def vector2quat(claw, right=None):
         [palm[2], right[2], claw[2]],
     ])
     
-    return Rotation.from_matrix(matrix).as_quat()
+    return Rotation.from_matrix(matrix).as_quat() # type: ignore
 
 def matrix2quat(matrix):
-    return Rotation.from_matrix(matrix).as_quat()
+    return Rotation.from_matrix(matrix).as_quat() # type: ignore
 
 def get_sam_mask(image, input_boxes):
     with torch.no_grad():
-        inputs = processor(image, input_boxes=input_boxes, return_tensors="pt").to("cuda")
+        inputs = processor(image, input_boxes=input_boxes, return_tensors="pt").to(device)
         outputs = model(**inputs)
-        masks = processor.image_processor.post_process_masks(outputs.pred_masks.cpu(), inputs["original_sizes"].cpu(), inputs["reshaped_input_sizes"].cpu())
+        masks = processor.image_processor.post_process_masks(outputs.pred_masks.cpu(), inputs["original_sizes"].cpu(), inputs["reshaped_input_sizes"].cpu()) # type: ignore
         scores = outputs.iou_scores
 
     plt.title("SAM detections")

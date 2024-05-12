@@ -1,5 +1,4 @@
 import math
-import polymetis
 import torch
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -12,6 +11,8 @@ class Panda:
             return
         else:
             self.mock = False
+
+        import polymetis
 
         self.robot = polymetis.RobotInterface(
             ip_address=polymetis_server_ip,

@@ -45,7 +45,7 @@ from typing import Optional
 
 import PIL.Image
 from lmp_planner import StatefulLanguageModelProgramExecutor, reason_and_generate_code
-from lmp_scene_api import Robot, Scene
+from lmp_scene_api import Scene
 from openai import OpenAI
 from rgbd import RGBD
 from vlms import image_url
@@ -132,17 +132,22 @@ def create_primary_context(event_stream: EventStream):
 
 def agent_loop():
     event_stream = EventStream()
-    rgbd = RGBD(num_cameras=1)
+    # rgbd = RGBD(num_cameras=1)
     code_executor = StatefulLanguageModelProgramExecutor()
     client = OpenAI()
     for _ in range(10):
-        rgbs, pcds = rgbd.capture()
-        imgs = [PIL.Image.fromarray(rgb) for rgb in rgbs]
+        # rgbs, pcds = rgbd.capture()
+        # imgs = [PIL.Image.fromarray(rgb) for rgb in rgbs]
+        imgs = [PIL.Image.open("sample_images/IMG_8650.jpeg")]
+        pcds = [None]
         scene = Scene(imgs, pcds, [f'img{i}' for i in range(len(imgs))])
         event_stream.add_event(VisualPerceptionEvent(scene))
 
         context = create_primary_context(event_stream)
         rationale, code, raw_content = reason_and_generate_code(context, imgs[0], client)
+
+        print("Reasoning and code generation:")
+        print(raw_content)
 
         if code is not None:
             code_executor.execute(code)
@@ -154,3 +159,6 @@ def agent_loop():
         # LLM requests access to the robot. (e.g. robot = access_robot())
 
     pass
+
+if __name__ == '__main__':
+    agent_loop()

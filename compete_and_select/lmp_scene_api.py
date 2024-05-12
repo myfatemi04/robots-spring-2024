@@ -1,25 +1,25 @@
 # from profile import profile
 from functools import cached_property
-from typing import List
+from typing import List, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
 import segment_point_cloud
 from detect_grasps import detect_grasps
-# from detect_objects_groundingdino import detect as detect_objects_2d
 from detect_objects import detect as detect_objects_2d
 from lmp_planner import LanguageModelPlanner
+from memory_bank_v2 import Memory, MemoryKey
 from object_detection_utils import draw_set_of_marks
 from openai import OpenAI
 from panda import Panda
 from rotation_utils import vector2quat
 from scipy.spatial.transform import Rotation
-from select_object_v2 import describe_objects_with_retrievals
+from select_object_v2 import (ObjectSelectionPolicyState,
+                              format_object_detections, get_selection_policy)
 from vlms import image_message
-from memory_bank_v2 import Memory, MemoryKey
 
-pcd_segmenter = segment_point_cloud.SamPointCloudSegmenter(device='cuda', render_2d_results=False)
+pcd_segmenter = segment_point_cloud.SamPointCloudSegmenter(render_2d_results=False)
 
 class Object:
     def __init__(self, point_cloud, colors, clip_features=None):
@@ -55,7 +55,7 @@ def get_object_selection_likelihoods(instructions, working_memory, retrieved_lon
     pass
 
 class Scene:
-    def __init__(self, imgs, pcds, view_names, lmp_planner: LanguageModelPlanner = None, selection_method_for_choose=None):
+    def __init__(self, imgs, pcds, view_names, lmp_planner: Optional[LanguageModelPlanner] = None, selection_method_for_choose=None):
         self.imgs: List[PIL.Image.Image] = imgs
         self.pcds: List[np.ndarray] = pcds
         self.view_names = view_names
@@ -63,6 +63,7 @@ class Scene:
         self.lmp_planner = lmp_planner
 
     def _choose_with_vlm(self, annotated_image, object_type, purpose):
+        assert self.lmp_planner is not None
         client = OpenAI()
         task = self.lmp_planner.instructions
         completion = client.chat.completions.create(model='gpt-4-vision-preview', messages=[
@@ -72,11 +73,12 @@ class Scene:
              "particular objects to interact with by outputting the number of the object."
             },
             {"role": "user", "content": [
-                image_message(annotated_image),
+                image_message(annotated_image), # type: ignore
                 {"type": "text", "text": f"Task: {task}\nSelect the box corresponding to {purpose}. What object ID should be selected here? Write 'Object ID: (number 1...n)'."}
             ]}
         ], temperature=0)
-        content: str = completion.choices[0].message.content
+        content = completion.choices[0].message.content
+        assert content is not None
         print("Set-of-marks prompt response:")
         print(content)
         index = content.lower().find("id: ")
@@ -102,9 +104,13 @@ class Scene:
         if len(detections_2d) == 0:
             print("<NO DETECTIONS>")
             return None
+        
+        assert self.lmp_planner is not None
+        
+        # ObjectSelectionPolicyState()
 
         # recall the relevant memories
-        description, nretrievals_per_object = describe_objects_with_retrievals(detections_2d, self.lmp_planner.memory_bank, threshold=0)
+        description, nretrievals_per_object = format_object_detections(detections_2d, self.lmp_planner.memory_bank, threshold=0)
         print(description, nretrievals_per_object)
         print(self.lmp_planner.memory_bank.memories)
 
@@ -114,6 +120,7 @@ class Scene:
             # we don't remember anything in particular about the objects in the scene
             object_scores = [0] * len(nretrievals_per_object)
         else:
+            assert self.lmp_planner is not None
             # have an LLM filtering step for these memories
             prompt = f"Task: {self.lmp_planner.instructions}\n\n"
             if self.lmp_planner.prev_planning is not None:
@@ -156,22 +163,6 @@ Respond with three lists: 'likely', 'neutral', and 'unlikely'. Format your list 
 
         print("resulting object scores:", object_scores)
 
-        # now we make a selection based on these scores
-        # using a softmax-like approach maybe? we want to do some kind
-        # of exploration i would think. this connects to RL if reward = following the human's
-        # instructions accurately. maybe we can try to have the LLM quantify risk and use that
-        # for exploration; but could leave that to future work.
-        # - boltzmann exploration (with a low temperature)
-        # - epsilon-greedy
-        # also, sometimes when the human provides assumptions, it is possible that:
-        # - the robot cannot physically execute the skill
-        # - the robot fails to execute the skill
-        # in cases where the human was wrong and the object was incorrectly used,
-        # maybe we should have a way to record that.
-
-        # i will use boltzmann exploration with a low temperature (maybe we can increase the temperature
-        # as we get more data? would like to be able to automatically calibrate the temperature based on
-        # confidence level though.)
         tau = 0.1
         object_scores = np.array(object_scores)
         object_scores = np.exp(object_scores / tau)
@@ -221,8 +212,8 @@ Imagine that this information will show up alongside the same object class in th
             print("Prompt:")
             print(prompt)
 
-            pos_emb = detections_2d[object_id]['emb_augmented']
-            neg_emb = detections_2d[negative_object_id]['emb_augmented']
+            pos_emb = detections_2d[object_id].embedding_augmented
+            neg_emb = detections_2d[negative_object_id].embedding_augmented
 
             cmpl = self.lmp_planner.client.chat.completions.create(
                 model='gpt-4-turbo',
@@ -232,6 +223,7 @@ Imagine that this information will show up alongside the same object class in th
                 ]
             )
             to_remember = cmpl.choices[0].message.content
+            assert to_remember is not None
 
             print("committing to short-term memory:", to_remember)
             print("positive ID:", object_id)
@@ -247,10 +239,9 @@ Imagine that this information will show up alongside the same object class in th
             ))
 
         detection = detections_2d[object_id]
-        box = detection['box']
-        x1, y1, x2, y2 = box['xmin'], box['ymin'], box['xmax'], box['ymax']
+        x1, y1, x2, y2 = detection.box
         segmented_pcd_xyz, segmented_pcd_color, _segmentation_masks = \
-            pcd_segmenter.segment(base_rgb_image, base_point_cloud, [x1, y1, x2, y2], supplementary_rgb_images, supplementary_point_clouds)
+            pcd_segmenter.segment(base_rgb_image, base_point_cloud, [int(x) for x in [x1, y1, x2, y2]], supplementary_rgb_images, supplementary_point_clouds)
         
         return Object(segmented_pcd_xyz, segmented_pcd_color, clip_features=None)
 
@@ -282,9 +273,8 @@ Imagine that this information will show up alongside the same object class in th
         # filter out detections that are not in the scene
         filtered_detections = []
         for detection in detections_2d:
-            box = detection['box']
-            box = {k: int(v) for k, v in box.items()}
-            pts = base_point_cloud[box['ymin']:box['ymax'], box['xmin']:box['xmax']]
+            xmin, ymin, xmax, ymax = (int(x) for x in detection.box)
+            pts = base_point_cloud[ymin:ymax, xmin:xmax]
             valid = ~(pts == -10000).any(axis=-1)
             pts = pts[valid]
             # first, if an object is out of range, there will not be any associated points
@@ -351,8 +341,7 @@ Imagine that this information will show up alongside the same object class in th
         objects: List[Object] = []
 
         for i, detection in enumerate(detections_2d):
-            box = detection['box']
-            x1, y1, x2, y2 = box['xmin'], box['ymin'], box['xmax'], box['ymax']
+            x1, y1, x2, y2 = [int(x) for x in detection.box]
             segmented_pcd_xyz, segmented_pcd_color, _segmentation_masks = \
                 pcd_segmenter.segment(base_rgb_image, base_point_cloud, [x1, y1, x2, y2], supplementary_rgb_images, supplementary_point_clouds)
             

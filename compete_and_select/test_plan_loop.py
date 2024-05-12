@@ -6,13 +6,15 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
+import torch
 from lmp_executor import StatefulLanguageModelProgramExecutor
 from lmp_scene_api import Robot, Scene
 from rgbd import RGBD
 from rotation_utils import vector2quat
 from transformers import SamModel, SamProcessor
 
-model = SamModel.from_pretrained("facebook/sam-vit-base").cuda()
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = SamModel.from_pretrained("facebook/sam-vit-base").to(device)
 processor = SamProcessor.from_pretrained("facebook/sam-vit-base")
 
 def main():

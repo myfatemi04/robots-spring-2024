@@ -8,18 +8,20 @@ import torchvision.ops as ops
 from object_detection_utils import add_object_clip_embeddings
 from transformers import Owlv2ForObjectDetection, Owlv2Processor
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model_name = 'google/owlv2-large-patch14-ensemble'
 # Faster
 # model_name = "google/owlv2-base-patch16-ensemble"
-processor = Owlv2Processor.from_pretrained(model_name)
-model = Owlv2ForObjectDetection.from_pretrained(model_name).to("cuda")
+processor: Owlv2Processor = Owlv2Processor.from_pretrained(model_name) # type: ignore
+model: Owlv2ForObjectDetection = Owlv2ForObjectDetection.from_pretrained(model_name).to(device) # type: ignore
 
 @dataclass
 class Detection:
     box: Tuple[float, float, float, float]
     score: float
     label: str
-    embedding: Optional[np.ndarray]
+    embedding: Optional[np.ndarray] = None
+    embedding_augmented: Optional[np.ndarray] = None
 
     @property
     def center(self):
@@ -48,7 +50,7 @@ def detect(image, label):
     start = time.time()
 
     with torch.no_grad():
-        inputs = processor(text=[label.lower()], images=image, return_tensors="pt").to("cuda")
+        inputs = processor(text=[label.lower()], images=image, return_tensors="pt").to(device)
         outputs = model(**inputs)
 
     # Target image sizes (height, width) to rescale box predictions [batch_size, 2]
@@ -102,7 +104,7 @@ def detect(image, label):
 def detect_v0(image, label):
     start = time.time()
     with torch.no_grad():
-        inputs = processor(text=[label.lower()], images=image, return_tensors="pt").to("cuda")
+        inputs = processor(text=[label.lower()], images=image, return_tensors="pt").to(device)
         outputs = model(**inputs)
 
     # Target image sizes (height, width) to rescale box predictions [batch_size, 2]

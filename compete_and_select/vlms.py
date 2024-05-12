@@ -7,15 +7,19 @@ import hjson
 import PIL.Image as Image
 from openai import OpenAI
 
+import torch
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 llava_model = None
 llava_processor = None
 def load_llava():
     global llava_model, llava_processor
     
-    from transformers import AutoModelForCausalLM, AutoProcessor, LlavaForConditionalGeneration# , LlavaLlamaForCausalLM
+    from transformers import AutoModelForCausalLM, AutoProcessor, LlavaForConditionalGeneration, LlavaProcessor # , LlavaLlamaForCausalLM
     
     model_id = "llava-hf/llava-1.5-13b-hf"
-    llava_model = LlavaForConditionalGeneration.from_pretrained(model_id).to('cuda')
+    llava_model = LlavaForConditionalGeneration.from_pretrained(model_id).to(device) # type: ignore
     # bf16. is this small enough?
     # model_id = "liuhaotian/llava-v1.6-34b"
     # llava_model = AutoModelForCausalLM.from_pretrained(model_id).to('cuda')
@@ -32,12 +36,13 @@ def llava(image, text, max_new_tokens=384):
     
     if llava_model is None:
         load_llava()
+    assert llava_model is not None
 
     prompt = f"<image>{text}"
-    inputs = llava_processor(text=prompt, images=image, return_tensors="pt").to('cuda')
+    inputs = llava_processor(text=prompt, images=image, return_tensors="pt").to(device) # type: ignore
     
     generate_ids = llava_model.generate(**inputs, max_new_tokens=max_new_tokens)
-    generated = llava_processor.batch_decode(
+    generated = llava_processor.batch_decode( # type: ignore
         generate_ids[:, inputs.input_ids.shape[1]:],
         skip_special_tokens=True,
         clean_up_tokenization_spaces=False
@@ -86,15 +91,13 @@ def scale_image(image, max_dim=1024):
         else:
             new_height = max_dim
             new_width = int(max_dim * width / height)
-        image = image.resize((new_width, new_height), Image.BICUBIC)
+        image = image.resize((new_width, new_height), Image.BICUBIC) # type: ignore
     return image
 
 def image_message(image: Image.Image):
     return {
         "type": "image_url",
-        "image_url": {
-            "url": f"data:image/jpeg;base64,{pil_image_to_base64(image)}"
-        }
+        "image_url": {"url": f"data:image/jpeg;base64,{pil_image_to_base64(image)}"}
     }
 
 def gpt4v(image, text, max_new_tokens=384, **kwargs):
@@ -107,7 +110,7 @@ def gpt4v(image, text, max_new_tokens=384, **kwargs):
           "role": "user",
           "content": [
             {"type": "text", "text": text},
-            image_message(image),
+            image_message(image), # type: ignore
           ],
         }
       ],
