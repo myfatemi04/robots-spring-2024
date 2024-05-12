@@ -64,6 +64,9 @@ def pil_image_to_base64(image):
     base64_image = base64.b64encode(img_byte_array).decode('utf-8')
     return base64_image
 
+def image_url(image):
+    return f"data:image/jpeg;base64,{pil_image_to_base64(image)}"
+
 def scale_image(image, max_dim=1024):
     """
     Resize the image so that the maximum dimension is `max_dim`.

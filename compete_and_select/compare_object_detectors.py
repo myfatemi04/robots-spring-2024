@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
 from detect_objects_clipseg import detect_objects_clipseg
-from generate_object_candidates import detect as detect_owlv2, draw_set_of_marks
+from detect_objects import detect as detect_owlv2, draw_set_of_marks
 
 # given an image and a query, write what each object detector detectors
 path = 'plan_logs/2024-04-27T01_58_41/images/1.png'

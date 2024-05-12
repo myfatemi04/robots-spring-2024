@@ -8,7 +8,7 @@ import PIL.Image as Image
 import polymetis
 import torch
 from generate_action_candidates import generate_action_candidates
-from generate_object_candidates import draw_set_of_marks
+from detect_objects import draw_set_of_marks
 from select_next_action import select_next_action
 
 # import cv2

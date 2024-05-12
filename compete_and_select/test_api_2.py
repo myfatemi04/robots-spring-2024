@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
 import segment_point_cloud
-from generate_object_candidates import detect, draw_set_of_marks
+from detect_objects import detect, draw_set_of_marks
 from detect_grasps import detect_grasps
 from panda import Panda
 from rgbd import RGBD

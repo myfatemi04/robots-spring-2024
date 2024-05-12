@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import torch
 import numpy as np
 from sklearn.svm import SVC
+from typing import Tuple
 
 # https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html#sklearn.svm.SVC.predict
 class MemoryKey:
@@ -52,11 +53,13 @@ class Memory:
     with this object.
     """
 
+Retrieval = Tuple[float, Memory]
+
 class MemoryBank:
     def __init__(self):
         self.memories = []
     
-    def retrieve(self, object_clip_embedding: np.ndarray, topk=None, threshold=None):
+    def retrieve(self, object_clip_embedding: np.ndarray, topk=None, threshold=None) -> List[Retrieval]:
         similarity_scores = sorted([
             (memory.key.get_probs(object_clip_embedding[None])[0], i)
             for i, memory in enumerate(self.memories)

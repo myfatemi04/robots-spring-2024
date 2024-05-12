@@ -8,7 +8,7 @@ import PIL.Image
 import segment_point_cloud
 from detect_grasps import detect_grasps
 # from detect_objects_groundingdino import detect as detect_objects_2d
-from generate_object_candidates import detect as detect_objects_2d
+from detect_objects import detect as detect_objects_2d
 from lmp_planner import LanguageModelPlanner
 from object_detection_utils import draw_set_of_marks
 from openai import OpenAI
@@ -50,6 +50,9 @@ class Object:
             show_rotated_voxel_grids=False
         )
         return grasps
+
+def get_object_selection_likelihoods(instructions, working_memory, retrieved_long_term_memories):
+    pass
 
 class Scene:
     def __init__(self, imgs, pcds, view_names, lmp_planner: LanguageModelPlanner = None, selection_method_for_choose=None):

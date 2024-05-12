@@ -6,9 +6,11 @@ from typing import List
 import numpy as np
 import PIL.Image
 from openai import OpenAI
-from vlms import image_message
+from openai.types.chat import ChatCompletionUserMessageParam as UMessage, ChatCompletionContentPartTextParam as TContent, ChatCompletionContentPartImageParam as IContent
+from vlms import image_message, image_url
 from lmp_executor import StatefulLanguageModelProgramExecutor
 from memory_bank_v2 import MemoryBank
+from agent_loop import EventStream
 
 '''
 We construct a chat history using the system prompt and prev. observations
@@ -17,6 +19,46 @@ along with a notion of the task at hand
 
 with open("prompts/code_generation.txt") as f:
     code_generation_prompt = f.read()
+
+def reason_and_generate_code(context, image: PIL.Image.Image, client: OpenAI, model='gpt-4-vision-preview'):
+    # Returns the rationale and code that was generated.
+    cmpl = client.chat.completions.create(
+        model=model,
+        messages=[
+            *context,
+            UMessage(
+                content=[
+                    TContent(
+                        type="text",
+                        text="This is the current observation. Please write your plan and code to complete the task. If you believe the task has been completed, call the robot.signal_completed() function."
+                    ),
+                    IContent(
+                        type="image_url",
+                        image_url={"url": image_url(image)}
+                    )
+                ],
+                role="user",
+            )
+        ]
+    )
+    raw_content = cmpl.choices[0].message.content
+    assert raw_content is not None
+
+    # find the code block in the language model's response
+    code_start = raw_content.find("```python") + 9
+    if code_start != -1:
+        code_end = raw_content.find("```", code_start)
+    else:
+        code_end = -1
+    
+    if code_start == -1 or code_end == -1:
+        code = None
+        rationale = raw_content
+    else:
+        code = raw_content[code_start:code_end]
+        rationale = raw_content.replace(f"```python{code}```", "<Code block>")
+        
+    return rationale, code, raw_content
 
 class LanguageModelPlanner:
     # TODO: Turn this into a planning context that abstracts away the notion of a language model to make plans
@@ -90,20 +132,7 @@ class LanguageModelPlanner:
 
 
     def run_step(self, imgs: List[PIL.Image.Image], pcds: List[np.ndarray]):
-        if True:
-            response = self.client.chat.completions.create(
-                model=self.model, messages=[
-                    *self.history_simplified,
-                    {'role': 'user', 'content': [
-                        {"type": "text", "text": "This is the current observation. Please write your plan and code to complete the task. If you believe the task has been completed, call the robot.signal_completed() function."},
-                        image_message(imgs[0])
-                    ]}
-                ]
-            )
-
-            planning = response.choices[0].message.content
-            self.prev_planning = planning
-            print(planning)
+        planning, code = reason_and_generate_code(self.history_simplified, imgs[0], self.client, self.model)
 
             self.history_simplified.append({
                 # Avoid using too many credits on image inputs

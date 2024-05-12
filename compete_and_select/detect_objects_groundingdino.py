@@ -38,7 +38,7 @@ def detect(image: PIL.Image.Image, label: str):
     ])
 
 if __name__ == '__main__':
-    from generate_object_candidates import detect as detect_owlv2
+    from detect_objects import detect as detect_owlv2
     import matplotlib.pyplot as plt
     image = PIL.Image.open("sample_images/1.png")
     dets = detect_owlv2(image, "piece of candy")

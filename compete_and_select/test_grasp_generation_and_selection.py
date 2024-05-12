@@ -7,7 +7,7 @@ import cv2
 import PIL.Image as Image
 import segment_point_cloud
 from detect_grasps import detect_grasps
-from generate_object_candidates import detect as detect_objects_2d
+from detect_objects import detect as detect_objects_2d
 from matplotlib import pyplot as plt
 from set_axes_equal import set_axes_equal
 
