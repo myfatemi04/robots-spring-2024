@@ -9,9 +9,9 @@ from object_detection_utils import add_object_clip_embeddings
 from transformers import Owlv2ForObjectDetection, Owlv2Processor
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model_name = 'google/owlv2-large-patch14-ensemble'
+# model_name = 'google/owlv2-large-patch14-ensemble'
 # Faster
-# model_name = "google/owlv2-base-patch16-ensemble"
+model_name = "google/owlv2-base-patch16-ensemble"
 processor: Owlv2Processor = Owlv2Processor.from_pretrained(model_name) # type: ignore
 model: Owlv2ForObjectDetection = Owlv2ForObjectDetection.from_pretrained(model_name).to(device) # type: ignore
 

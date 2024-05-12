@@ -1,9 +1,11 @@
 import io
+from typing import List
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import PIL.Image as Image
 import torch
+from detect_objects import Detection
 from transformers import CLIPProcessor, CLIPVisionModelWithProjection
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -35,7 +37,7 @@ def add_object_clip_embeddings(image: Image.Image, detections):
         
     return detections
 
-def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
+def draw_set_of_marks(image: Image.Image, predictions: List[Detection], custom_labels=None):
     fig = plt.figure(figsize=(8, 6), dpi=128)
     ax = fig.add_subplot(111)
     
@@ -43,14 +45,7 @@ def draw_set_of_marks(image, predictions, custom_labels=None, live=False):
 
     object_id_counter = 1
     for prediction in predictions:
-        box = prediction["box"]
-        # label = prediction["label"]
-        # score = prediction["score"]
-        
-        x1 = box['xmin']
-        x2 = box['xmax']
-        y1 = box['ymin']
-        y2 = box['ymax']
+        x1, y1, x2, y2 = prediction.box
         
         ax.add_patch(patches.Rectangle(
             (x1, y1), x2 - x1, y2 - y1,
