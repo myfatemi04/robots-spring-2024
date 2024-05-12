@@ -16,7 +16,7 @@ We construct a chat history using the system prompt and prev. observations
 along with a notion of the task at hand
 '''
 
-with open("prompts/code_generation.txt") as f:
+with open("prompts/code_generation.md") as f:
     code_generation_prompt = f.read()
 
 def reason_and_generate_code(context, image: PIL.Image.Image, client: OpenAI, model='gpt-4-vision-preview'):
@@ -29,7 +29,7 @@ def reason_and_generate_code(context, image: PIL.Image.Image, client: OpenAI, mo
                 content=[
                     TContent(
                         type="text",
-                        text="This is the current observation. Please write your plan and code to complete the task. If you believe the task has been completed, call the robot.signal_completed() function."
+                        text="This is the current observation. Please write your plan and the code to execute."
                     ),
                     IContent(
                         type="image_url",

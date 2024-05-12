@@ -39,16 +39,18 @@ Information about which objects should be selected may span several steps.
 
 """
 
-from dataclasses import dataclass
+import os
+import pickle
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
 import PIL.Image
-from lmp_planner import StatefulLanguageModelProgramExecutor, reason_and_generate_code
+from lmp_planner import (StatefulLanguageModelProgramExecutor,
+                         reason_and_generate_code)
 from lmp_scene_api import Scene
 from openai import OpenAI
-from rgbd import RGBD
-from vlms import image_url
+from vlms import image_message
 
 
 class EventType(Enum):
@@ -85,15 +87,20 @@ class ReflectionEvent(Event):
 class VerbalFeedbackEvent(Event):
     text: str
 
-class EventStream:
-    def __init__(self):
-        self.events = []
+@dataclass
+class ExceptionEvent(Event):
+    exception_type: str
+    text: str
 
-    def add_event(self, event: Event):
+@dataclass
+class EventStream:
+    events: List[Event] = field(default_factory=list)
+
+    def write(self, event: Event):
         self.events.append(event)
 
-    def get_last_event(self):
-        return self.events[-1]
+with open("prompts/code_generation.md") as f:
+    code_generation_prompt = f.read()
 
 def create_primary_context(event_stream: EventStream):
     last_vision_event = [i for i, event in enumerate(event_stream.events) if isinstance(event, VisualPerceptionEvent)][-1]
@@ -110,7 +117,7 @@ def create_primary_context(event_stream: EventStream):
                     'role': 'system',
                     'content': [
                         {'type': 'text', 'text': "Here is what you currently see."},
-                        {'type': 'image_url', 'image_url': image_url(event.scene.imgs[0])}
+                        image_message(event.scene.imgs[0]), # type: ignore
                     ]
                 })
         elif isinstance(event, ReflectionEvent):
@@ -128,31 +135,110 @@ def create_primary_context(event_stream: EventStream):
                 'role': 'assistant',
                 'content': event.raw_content,
             })
+    context.append(
+        {'role': 'system', 'content': code_generation_prompt}
+    )
     return context
 
 def agent_loop():
     event_stream = EventStream()
+
+    def ask(prompt='[Robot called the ask() function without a prompt]:'):
+        result = input(prompt)
+        event_stream.write(VerbalFeedbackEvent(result))
+        return result
+
     # rgbd = RGBD(num_cameras=1)
-    code_executor = StatefulLanguageModelProgramExecutor()
+    code_executor = StatefulLanguageModelProgramExecutor(vars={"ask": ask})
     client = OpenAI()
-    for _ in range(10):
+
+    start_i = 0
+    if os.path.exists("event_stream.pkl"):
+        with open("event_stream.pkl", "rb") as f:
+            event_stream = pickle.load(f)
+        start_i = sum(1 for evt in event_stream.events if isinstance(evt, VisualPerceptionEvent))
+        print(event_stream)
+        
+    for i in range(start_i, 2):
         # rgbs, pcds = rgbd.capture()
         # imgs = [PIL.Image.fromarray(rgb) for rgb in rgbs]
         imgs = [PIL.Image.open("sample_images/IMG_8650.jpeg")]
         pcds = [None]
         scene = Scene(imgs, pcds, [f'img{i}' for i in range(len(imgs))])
-        event_stream.add_event(VisualPerceptionEvent(scene))
+        event_stream.write(VisualPerceptionEvent(scene))
 
-        context = create_primary_context(event_stream)
-        rationale, code, raw_content = reason_and_generate_code(context, imgs[0], client)
+        raw_content = """
+Reasoning:
+The task is to provide a snack from the available options in the image, which include a bag of Blue Diamond Almonds, a packet of Teddy Grahams, and a bag of Seasoned Croutons. The almonds and Teddy Grahams are typical snack choices, while croutons are generally used in salads. Given that the teddy grahams and almonds are more conventional snack options, I would choose one of these.
+
+Short Plan:
+1. Decide which snack to pick up; considering typical snack preferences, I will choose the more universally appealing snack, which are the almonds or Teddy Grahams.
+2. Locate the chosen snack pack using the scene detection.
+3. Direct the robot to move its hand to the location of the snack pack.
+4. Grasp the snack pack.
+5. Move the robot hand back to the starting position with the snack pack.
+
+Code Implementation:
+```python
+# Assume the Teddy Grahams are the chosen snack as they are likely more appealing to a larger audience, including children
+snack = scene.choose('packet', 'Teddy Grahams')
+
+# Direct the robot to move its hand to the location of the chosen snack pack
+robot.move_to(snack.centroid)
+
+# Grasp the snack pack
+robot.grasp(snack)
+
+# Move the robot hand back to a predetermined starting position with the snack pack
+# Assuming the starting position is [0, 0, 0] for this example
+robot.move_to([0, 0, 0])
+```"""
+        rationale = """
+Reasoning:
+The task is to provide a snack from the available options in the image, which include a bag of Blue Diamond Almonds, a packet of Teddy Grahams, and a bag of Seasoned Croutons. The almonds and Teddy Grahams are typical snack choices, while croutons are generally used in salads. Given that the teddy grahams and almonds are more conventional snack options, I would choose one of these.
+
+Short Plan:
+1. Decide which snack to pick up; considering typical snack preferences, I will choose the more universally appealing snack, which are the almonds or Teddy Grahams.
+2. Locate the chosen snack pack using the scene detection.
+3. Direct the robot to move its hand to the location of the snack pack.
+4. Grasp the snack pack.
+5. Move the robot hand back to the starting position with the snack pack.
+
+Code Implementation:
+<Code block>"""
+        code = """
+# Assume the Teddy Grahams are the chosen snack as they are likely more appealing to a larger audience, including children
+snack = scene.choose('packet', 'Teddy Grahams')
+
+# Direct the robot to move its hand to the location of the chosen snack pack
+robot.move_to(snack.centroid)
+
+# Grasp the snack pack
+robot.grasp(snack)
+
+# Move the robot hand back to a predetermined starting position with the snack pack
+# Assuming the starting position is [0, 0, 0] for this example
+robot.move_to([0, 0, 0])
+"""
+
+        # context = create_primary_context(event_stream)
+        # rationale, code, raw_content = reason_and_generate_code(context, imgs[0], client)
+        event_stream.write(CodeActionEvent(rationale, code, raw_content))
 
         print("Reasoning and code generation:")
         print(raw_content)
 
         if code is not None:
-            code_executor.execute(code)
+            code_executor.update(scene=scene)
+            status, output = code_executor.execute(code)
+            if not status:
+                assert output is not None, "Cannot return a False status without an output."
+                print(f"Error: {output}")
+                event_stream.write(ExceptionEvent("CodeExecutionError", output))
 
-        event_stream.add_event(CodeActionEvent(rationale, code, raw_content))
+        # if i == 0:
+        #     with open("event_stream.pkl", "wb") as f:
+        #         pickle.dump(event_stream, f)
 
         # Use an ask/tell API to interact with the human.
         # All interactions will be performed with code, including speaking to the human.

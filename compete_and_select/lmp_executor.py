@@ -4,6 +4,7 @@ Date: April 25, 2024
 """
 
 import traceback
+from typing import Union, Tuple, Literal
 
 class StatefulLanguageModelProgramExecutor:
 
@@ -18,7 +19,7 @@ class StatefulLanguageModelProgramExecutor:
         assert 'import' not in source, "Cannot import any new libraries"
         assert '__' not in source, "Cannot use any special variables"
     
-    def execute(self, source: str):
+    def execute(self, source: str) -> Union[Tuple[Literal[True], None], Tuple[Literal[False], str]]:
         self.check(source)
 
         globals_ = {'exec': None, 'eval': None, 'open': None}

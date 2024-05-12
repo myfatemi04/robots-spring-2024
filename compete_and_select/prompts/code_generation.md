@@ -2,7 +2,24 @@
 
 Pretend you are writing code to control a robot. Assume you have access to the following APIs.
 
-## API Documentation: Robot
+
+## API Documentation
+
+### `ask()` function
+
+If you have no existing instructions, or you have uncertainty about what you should do next, your code
+block should consist of a call to the `ask()` function. This will signal to the system that you are
+requesting additional instructions or clarification.
+
+Example 1:
+```python
+ask("Which object should I move?")
+```
+
+Example 2:
+```python
+ask("I am ready for your next instruction. What would you like me to do?")
+```
 
 ### `Object` class
 
@@ -45,8 +62,6 @@ Parameters:
  - `object`, a variable of type `Object` (which is an item of the list returned by `scene.detect`)
 
 4. `robot.release()`: Releases the grasped object.
-
-5. `robot.signal_completed()`: Use this ONLY if, after looking at the image, there appears to be no more work to do.
 
 # Examples
 
