@@ -1,7 +1,7 @@
 # Instructions
 
-Pretend you are writing code to control a robot. Assume you have access to the following APIs.
-
+You are writing code to control a robot. Assume you have access to the following APIs. If you require clarification about anything
+whatsoever, you shall call the `ask()` function.
 
 ## API Documentation
 

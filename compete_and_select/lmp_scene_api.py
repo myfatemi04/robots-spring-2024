@@ -1,23 +1,32 @@
 # from profile import profile
+import re
 from functools import cached_property
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
 import segment_point_cloud
+from agent_state import AgentState
+from clients import vlm_client
 from detect_grasps import detect_grasps
+from detect_objects import Detection
 from detect_objects import detect as detect_objects_2d
+from event_stream import (CodeActionEvent, ObjectSelectionDetectionResult,
+                          ObjectSelectionInitiation,
+                          ObjectSelectionPolicyCreation,
+                          ObjectSelectionPolicySelection, ReflectionEvent,
+                          VerbalFeedbackEvent, VisualPerceptionEvent)
 from lmp_planner import LanguageModelPlanner
-from memory_bank_v2 import Memory, MemoryKey
+from memory_bank_v2 import Memory, MemoryKey, Retrieval
 from object_detection_utils import draw_set_of_marks
 from openai import OpenAI
 from panda import Panda
 from rotation_utils import vector2quat
 from scipy.spatial.transform import Rotation
-from select_object_v2 import (ObjectSelectionPolicyState,
-                              format_object_detections, get_selection_policy)
+from select_object_v2 import format_object_detections
 from vlms import image_message
+import pprint
 
 pcd_segmenter = segment_point_cloud.SamPointCloudSegmenter(render_2d_results=False)
 
@@ -51,10 +60,160 @@ class Object:
         )
         return grasps
 
-def get_object_selection_likelihoods(instructions, working_memory, retrieved_long_term_memories):
-    pass
+def create_get_selection_policy_context(agent_state: AgentState, detections: List[Detection], retrievals: List[List[Retrieval]], annotated_image):
+    last_vision_event = [i for i, event in enumerate(agent_state.event_stream.events) if isinstance(event, VisualPerceptionEvent)][-1]
+    context = []
+
+    context.append({
+        "role": "system",
+        "content": "You are an assistive tool which helps robots make motion plans."
+    })
+
+    for i, event in enumerate(agent_state.event_stream.events):
+        if isinstance(event, VisualPerceptionEvent):
+            if i < last_vision_event:
+                context.append({
+                    'role': 'system',
+                    'content': '<Prior observation>'
+                })
+            else:
+                context.append({
+                    'role': 'system',
+                    'content': [
+                        {'type': 'text', 'text': "Here is what you currently see."},
+                        image_message(annotated_image), # type: ignore
+                    ]
+                })
+        elif isinstance(event, ReflectionEvent):
+            context.append({
+                'role': 'assistant',
+                'content': event.reflection,
+            })
+        elif isinstance(event, VerbalFeedbackEvent):
+            context.append({
+                'role': 'user',
+                'content': event.text,
+            })
+        elif isinstance(event, CodeActionEvent):
+            context.append({
+                'role': 'assistant',
+                'content': event.raw_content,
+            })
+        elif isinstance(event, ObjectSelectionInitiation) and i == len(agent_state.event_stream.events) - 1:
+            object_detections_string = format_object_detections(detections, retrievals)
+
+            content = f"""It is now time for you to select an object to interact with. Object type: {event.object_type}. Object purpose: {event.object_purpose}.
+            
+The following objects have been detected:
+{object_detections_string}
+
+Rank the objects in the scene according to how likely they are to be the best choice.
+Respond with 'likely', 'neutral', and 'unlikely' for each object. Format your response as follows:
+```
+Reasoning:
+(Your reasoning goes here)
+
+Choices:
+1: likely
+2: neutral
+3: unlikely
+"""
+            context.append({
+                'role': 'system',
+                'content': content,
+            })
+    return context
+
+def parse_likelihood_response(response: str) -> Tuple[str, Dict[int, str]]:
+    """
+    FORMAT:
+    ```
+    Reasoning:
+    The object is commonly used in this context.
+
+    Choices:
+    1: likely
+    2: neutral
+    3: unlikely
+    ```
+    """
+
+    # Parse the response
+    choices_index = response.find('Choices:')
+    reasoning = response[:choices_index].strip()
+    choices_str = response[choices_index + 8:].strip()
+
+    # Extract individual choices
+    choices = {}
+    for line in choices_str.strip().split('\n'):
+        if ':' in line:
+            obj_num, choice = line.split(':')
+            choices[int(obj_num.strip())] = choice.strip()
+        else:
+            # break at the first line without an object.
+            break
+
+    return (reasoning, choices)
+
+def get_selection_policy(context: list):
+    """
+    Scope of this function:
+     - Given an input state, output a policy for which objects to select
+    """
+
+    print("Context for object selection policy:")
+    pprint.pprint(context)
+
+
+    response = vlm_client.chat.completions.create(
+        model='gpt-4-vision-preview',
+        messages=[*context]
+    ).choices[0].message.content
+    assert response is not None
+
+    print("Created object selection policy:")
+    print(response)
+
+    reasoning, choices = parse_likelihood_response(response)
+
+    # get logits
+    logits = np.zeros(max(choices.keys()))
+    for key, value in choices.items():
+        if value.lower().strip() == 'unlikely':
+            logits[key - 1] = -1
+        elif value.lower().strip() == 'likely':
+            logits[key - 1] = 1
+
+    return (reasoning, logits)
 
 class Scene:
+    def __init__(self, imgs, pcds, agent_state: AgentState):
+        self.imgs: List[PIL.Image.Image] = imgs
+        self.pcds: List[Optional[np.ndarray]] = pcds or [None] * len(imgs)
+        self.agent_state = agent_state
+
+    def choose(self, object_type, purpose):
+        self.agent_state.event_stream.write(ObjectSelectionInitiation(object_type, purpose))
+
+        detections = detect_objects_2d(self.imgs[0], object_type)
+
+        self.agent_state.event_stream.write(ObjectSelectionDetectionResult(detections))
+
+        retrievals = [self.agent_state.memory_bank.retrieve(detection.embedding, threshold=0.5) for detection in detections]
+
+        annotated_image = draw_set_of_marks(self.imgs[0], detections)
+
+        rationale, logits = get_selection_policy(create_get_selection_policy_context(self.agent_state, detections, retrievals, annotated_image))
+
+        self.agent_state.event_stream.write(ObjectSelectionPolicyCreation(rationale, logits))
+
+        selected_object_id = np.argmax(logits)
+
+        self.agent_state.event_stream.write(ObjectSelectionPolicySelection(selected_object_id)) # type: ignore
+
+        detection = detections[selected_object_id]
+
+class Scene_v0:
     def __init__(self, imgs, pcds=None, view_names=None, lmp_planner: Optional[LanguageModelPlanner] = None, selection_method_for_choose=None):
         self.imgs: List[PIL.Image.Image] = imgs
         self.pcds: List[Optional[np.ndarray]] = pcds or [None] * len(imgs)
@@ -89,8 +248,8 @@ class Scene:
         print("Object ID string:", object_id_str)
         object_id = int(object_id_str)
         return object_id
-    
-    def choose(self, object_type, purpose):
+
+    def choose_v1(self, object_type, purpose):
         base_image_index = 0
 
         base_rgb_image = self.imgs[base_image_index]
@@ -244,7 +403,6 @@ Imagine that this information will show up alongside the same object class in th
             pcd_segmenter.segment(base_rgb_image, base_point_cloud, [int(x) for x in [x1, y1, x2, y2]], supplementary_rgb_images, supplementary_point_clouds)
         
         return Object(segmented_pcd_xyz, segmented_pcd_color, clip_features=None)
-
 
     def choose_v0(self, object_type, purpose):
         """

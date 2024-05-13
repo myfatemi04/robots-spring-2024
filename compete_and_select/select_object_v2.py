@@ -1,7 +1,7 @@
 import copy
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Dict
+from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -122,50 +122,16 @@ def get_selection_policy_gradient_estimate(state: ObjectSelectionPolicyState, fi
 
     return delta_logits
 
-def get_selection_policy(state: ObjectSelectionPolicyState):
+def get_selection_policy(context: list):
     """
     Scope of this function:
      - Given an input state, output a policy for which objects to select
     """
 
-    object_detections = format_object_detections(state.detections, state.detections_recalled_memories)
-
-    text_context = f"""
-Task: {state.task}
-
-Current plan:
-{state.natural_language_plan}
-
-Current code being executed:
-{state.code_plan}
-
-Target object: {state.object_type} ({state.object_purpose})
-
-The following objects have been detected:
-{object_detections}
-
-Rank the objects in the scene according to how likely they are to be the best choice.
-Respond with 'likely', 'neutral', and 'unlikely' for each object. Format your response as follows:
-```
-Reasoning:
-(Your reasoning goes here)
-
-Choices:
-1: likely
-2: neutral
-3: unlikely
-```
-    """
 
     cmpl = vlm_client.chat.completions.create(
         model='gpt-4-vision-preview',
-        messages=[
-            {"role": "system", "content": "You are a helpful human assistant who uses a robot API to help robots make motion plans."},
-            {"role": "user", "content": [ # type: ignore
-                {"type": "text", "text": text_context},
-                image_message(state.image_annotated), # type: ignore
-            ]}
-        ]
+        messages=[*context]
     )
     reasoning, choices = parse_likelihood_response(cmpl.choices[0].message.content)
 

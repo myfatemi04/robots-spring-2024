@@ -39,74 +39,24 @@ Information about which objects should be selected may span several steps.
 
 """
 
-import os
-import pickle
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import List, Optional
-
 import matplotlib.pyplot as plt
 import PIL.Image
-from detect_objects import Detection, detect
-from select_object_v2 import draw_set_of_marks
+from agent_state import AgentState
+from event_stream import (CodeActionEvent, EventStream, ExceptionEvent,
+                          ReflectionEvent, VerbalFeedbackEvent,
+                          VisualPerceptionEvent)
 from lmp_planner import (StatefulLanguageModelProgramExecutor,
                          reason_and_generate_code)
 from lmp_scene_api import Scene
+from memory_bank_v2 import MemoryBank
 from openai import OpenAI
+from select_object_v2 import draw_set_of_marks
 from vlms import image_message
-
-
-class EventType(Enum):
-    VISUAL_PERCEPTION = 0
-    INNER_MONOLOGUE = 1
-    CODE_ACTION = 2
-    VERBAL_FEEDBACK = 3
-
-@dataclass
-class Event:
-    pass
-    # type: EventType
-
-@dataclass
-class VisualPerceptionEvent(Event):
-    scene: Scene
-
-@dataclass
-class CodeActionEvent(Event):
-    rationale: str
-    code: Optional[str]
-    raw_content: str
-    # Should store the values of anything that changes (e.g. freeze the state of the environment)
-
-@dataclass
-class ReflectionEvent(Event):
-    # We reflect on an action.
-    # For example, maybe we generate memories associated with certain objects.
-    # Then we log the human feedback associated with those memories.
-    # How do we refer to the objects though?
-    reflection: str
-
-@dataclass
-class VerbalFeedbackEvent(Event):
-    text: str
-    variables: Optional[dict] = None
-
-@dataclass
-class ExceptionEvent(Event):
-    exception_type: str
-    text: str
-
-@dataclass
-class EventStream:
-    events: List[Event] = field(default_factory=list)
-
-    def write(self, event: Event):
-        self.events.append(event)
 
 with open("prompts/code_generation.md") as f:
     code_generation_prompt = f.read()
 
-def create_primary_context(event_stream: EventStream):
+def create_primary_context(event_stream: EventStream, image_observation_overwrite=None):
     last_vision_event = [i for i, event in enumerate(event_stream.events) if isinstance(event, VisualPerceptionEvent)][-1]
     context = []
     for i, event in enumerate(event_stream.events):
@@ -121,7 +71,7 @@ def create_primary_context(event_stream: EventStream):
                     'role': 'system',
                     'content': [
                         {'type': 'text', 'text': "Here is what you currently see."},
-                        image_message(event.scene.imgs[0]), # type: ignore
+                        image_message(image_observation_overwrite or event.imgs[0]), # type: ignore
                     ]
                 })
         elif isinstance(event, ReflectionEvent):
@@ -139,9 +89,6 @@ def create_primary_context(event_stream: EventStream):
                 'role': 'assistant',
                 'content': event.raw_content,
             })
-    context.append(
-        {'role': 'system', 'content': code_generation_prompt}
-    )
     return context
 
 def create_vision_model_context(event_stream: EventStream):
@@ -187,6 +134,8 @@ def create_vision_model_context(event_stream: EventStream):
 
 def agent_loop():
     event_stream = EventStream()
+    memory_bank = MemoryBank()
+    agent_state = AgentState(event_stream, memory_bank)
 
     def ask(prompt='[Robot called the ask() function without a prompt]:'):
         result = input(prompt)
@@ -205,7 +154,7 @@ def agent_loop():
     #     print(event_stream)
 
     # Create a custom event stream
-    scene = Scene([PIL.Image.open("sample_images/IMG_8651.jpeg")])
+    scene = Scene([PIL.Image.open("sample_images/IMG_8651.jpeg")], None, agent_state)
     # detections = detect(scene.imgs[0], "deck of cards")
     # drawn = draw_set_of_marks(scene.imgs[0], detections)
     # plt.title('Detections')
@@ -214,14 +163,14 @@ def agent_loop():
     # plt.show()
     
     # event_stream.write(VisualPerceptionEvent(scene))
-    event_stream.write(VerbalFeedbackEvent("Please put these items away"))
+    event_stream.write(VerbalFeedbackEvent("Please put these items into the bowl."))
     
-    for i in range(1):
+    for i in range(2):
         # rgbs, pcds = rgbd.capture()
         # imgs = [PIL.Image.fromarray(rgb) for rgb in rgbs]
         imgs = [PIL.Image.open("sample_images/IMG_8651.jpeg")]
-        scene = Scene(imgs)
-        event_stream.write(VisualPerceptionEvent(scene))
+        scene = Scene(imgs, None, agent_state)
+        event_stream.write(VisualPerceptionEvent(imgs, [None] * len(imgs)))
 
 #         rationale = """
 # Reasoning:
@@ -253,6 +202,9 @@ def agent_loop():
 #         raw_content = rationale.replace("<Code block>", code)
 
         context = create_primary_context(event_stream)
+        context.append(
+            {'role': 'system', 'content': code_generation_prompt}
+        )
         rationale, code, raw_content = reason_and_generate_code(context, imgs[0], client)
         event_stream.write(CodeActionEvent(rationale, code, raw_content))
 

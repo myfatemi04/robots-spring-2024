@@ -49,7 +49,7 @@ class Detection:
     box: Tuple[float, float, float, float]
     score: float
     label: str
-    embedding: Optional[np.ndarray] = None
+    embedding: np.ndarray
     embedding_augmented: Optional[np.ndarray] = None
 
     @property
