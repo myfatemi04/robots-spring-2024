@@ -14,27 +14,37 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 clip_vision_model: CLIPVisionModelWithProjection = CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").to(device) # type: ignore
 clip_processor: CLIPProcessor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14") # type: ignore
 
+def get_clip_embedding_map(image: Image.Image):
+    result = clip_vision_model(
+        **clip_processor(images=image, return_tensors='pt').to(device)
+    )
+    image_tokens = result.last_hidden_state[0, 1:, :]
+    hwc = image_tokens.view(16, 16, -1)
+
+    return hwc
+
+def embed_box(image: Image.Image, xmin, ymin, xmax, ymax):
+    width = xmax - xmin
+    height = ymax - ymin
+    center_x = (xmax + xmin) // 2
+    center_y = (ymax + ymin) // 2
+    # ensure square image to prevent warping
+    size = max(224, width, height)
+    object_img = image.crop((center_x-size//2, center_y-size//2, center_x+size//2, center_y+size//2))
+    rotated_1 = object_img.rotate(5, expand=False)
+    rotated_2 = object_img.rotate(-5, expand=False)
+    object_emb_output = clip_vision_model(
+        **clip_processor(images=[object_img, rotated_1, rotated_2], return_tensors='pt').to(device) # type: ignore
+    )
+    image_embeds = object_emb_output.last_hidden_state[:, 0, :]
+    return image_embeds[0].detach().cpu().numpy(), image_embeds[1:].detach().cpu().numpy()
+
+
 # create clip embeddings for objects
 def add_object_clip_embeddings(image: Image.Image, detections):
     with torch.no_grad():
         for detection in detections:
-            box = detection['box']
-            width = box['xmax'] - box['xmin']
-            height = box['ymax'] - box['ymin']
-            center_x = (box['xmax'] + box['xmin']) / 2
-            center_y = (box['ymax'] + box['ymin']) / 2
-            # ensure square image to prevent warping
-            size = max(224, width, height)
-            object_img = image.crop((center_x-size/2, center_y-size/2, center_x+size/2, center_y+size/2))
-
-            rotated_1 = object_img.rotate(5, expand=False)
-            rotated_2 = object_img.rotate(-5, expand=False)
-
-            object_emb_output = clip_vision_model(
-                **clip_processor(images=[object_img, rotated_1, rotated_2], return_tensors='pt').to(device) # type: ignore
-            )
-            detection['emb'] = object_emb_output.image_embeds[0].detach().cpu().numpy()
-            detection['emb_augmented'] = [x.detach().cpu().numpy() for x in object_emb_output.image_embeds]
+            detection['emb'], detection['emb_augmented'] = embed_box(image, **detection['box'])
         
     return detections
 

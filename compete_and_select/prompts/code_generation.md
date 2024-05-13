@@ -3,6 +3,9 @@
 You are writing code to control a robot. Assume you have access to the following APIs. If you require clarification about anything
 whatsoever, you shall call the `ask()` function.
 
+Guidelines:
+ * Do not assume you know the location of an object. You must use the `scene.choose` method to locate objects.
+
 ## API Documentation
 
 ### `ask()` function
