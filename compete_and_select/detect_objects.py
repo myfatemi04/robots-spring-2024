@@ -14,14 +14,17 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 clip_vision_model: CLIPVisionModelWithProjection = CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").to(device) # type: ignore
 clip_processor: CLIPProcessor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14") # type: ignore
 
-def get_clip_embedding_map(image: Image.Image):
+def get_clip_embeddings(image: Image.Image, return_np=True):
     result = clip_vision_model(
         **clip_processor(images=image, return_tensors='pt').to(device)
     )
-    image_tokens = result.last_hidden_state[0, 1:, :]
-    hwc = image_tokens.view(16, 16, -1)
-
-    return hwc
+    embedding_pooled = result.last_hidden_state[0, 0, :]
+    embedding_map = result.last_hidden_state[0, 1:, :].view(16, 16, -1)
+    result = (embedding_pooled, embedding_map)
+    if return_np:
+        result = tuple(embedding.detach().cpu().numpy() for embedding in result)
+    
+    return result
 
 def embed_box(image: Image.Image, xmin, ymin, xmax, ymax):
     width = xmax - xmin
