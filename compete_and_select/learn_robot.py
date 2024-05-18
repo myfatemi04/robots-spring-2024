@@ -244,7 +244,35 @@ def boxes_to_masks(image: PIL.Image.Image, input_boxes: List[Tuple[int, int, int
         inputs["original_sizes"].cpu(),      # type: ignore
         inputs["reshaped_input_sizes"].cpu() # type: ignore
     )[0] # 0 to remove batch dimension
-    return masks
+    return [mask[0].detach().cpu().numpy().astype(float) for mask in masks]
+
+def points_to_masks(image: PIL.Image.Image, points: List[Tuple[int, int]]):
+    inputs = sam_processor(images=[image], input_points=[[[list(pt)] for pt in points]], return_tensors="pt").to(device)
+    outputs = sam_model(**inputs)
+    masks = sam_processor.image_processor.post_process_masks( # type: ignore
+        outputs.pred_masks.cpu(),
+        inputs["original_sizes"].cpu(),      # type: ignore
+        inputs["reshaped_input_sizes"].cpu() # type: ignore
+    )[0] # 0 to remove batch dimension
+    # print(masks)
+    # print(masks[0].shape)
+    # print(len(masks))
+    return [mask[0].detach().cpu().numpy().astype(bool) for mask in masks]
+
+def sample_from_mask(mask, min_dist=250, n_skip=25):
+    coordinates = np.stack(np.where(mask)[::-1], axis=-1)[::n_skip]
+    permutation = np.random.permutation(len(coordinates))
+    kept = np.zeros(len(coordinates), dtype=bool)
+
+    # avoid the if statement
+    kept[permutation[0]] = True
+
+    min_distance = min_dist
+    for i in permutation[1:]:
+        min_dist_seen = np.linalg.norm(coordinates[i] - coordinates[kept], axis=-1).min()
+        kept[i] = min_dist_seen > min_distance
+
+    return coordinates[kept]
 
 # we now create an artificial narration for the robot to learn from
 def artificial_narration():
@@ -258,8 +286,9 @@ def artificial_narration():
     train_image = ImageObservation(steps[1])
     train_image_aug = ImageObservation(steps[1].filter(PIL.ImageFilter.GaussianBlur(2)))
     # very_easy_eval_image = train_image
-    eval_image = PIL.Image.open("sample_images/cleanup_sequence/IMG_8654.jpeg")
-    very_easy_eval_image = ImageObservation(eval_image)
+    very_easy_eval_image = ImageObservation(
+        PIL.Image.open("sample_images/cleanup_sequence/IMG_8654.jpeg")
+    )
     brown_oatmeal = (1376, 1967, 2217, 2638)
     cardboard_box = (275, 788, 1298, 1533)
     blue_rag = (1964, 1698, 2602, 2177)
@@ -285,7 +314,6 @@ def artificial_narration():
     masks = boxes_to_masks(train_image.image, food_item_train_examples)
 
     for mask in masks:
-        mask = mask[0].detach().cpu().numpy().astype(float)
         overall_mask |= (mask > 0.5)
 
     # center crop.
@@ -294,22 +322,95 @@ def artificial_narration():
     train_image.image = train_image.image.crop((offset, 0, train_image.image.height + offset, train_image.image.height))
     train_image_aug.image = train_image_aug.image.crop((offset, 0, train_image_aug.image.height + offset, train_image_aug.image.height))
 
-    plt.imshow(train_image.image)
-    plt.imshow(overall_mask.astype(float), alpha=overall_mask.astype(float))
-    plt.axis('off')
-    plt.show()
+    # plt.imshow(train_image.image)
+    # plt.imshow(overall_mask.astype(float), alpha=overall_mask.astype(float))
+    # plt.axis('off')
+    # plt.show()
 
-    visualize_highlight(train_image, get_include_mask(train_image, overall_mask))
+    # visualize_highlight(train_image, get_include_mask(train_image, overall_mask))
 
     food_item_indicator_function = compile_memories([train_image, train_image_aug], [overall_mask, overall_mask])
 
     # center crop.
     very_easy_eval_image.image = very_easy_eval_image.image.crop((offset, 0, very_easy_eval_image.image.height + offset, very_easy_eval_image.image.height))
+    highlighted_tokens = highlight(very_easy_eval_image, food_item_indicator_function)
+    # Resize the highlighted tokens to the original image size
+    highlighted_image = PIL.Image.fromarray(np.uint8(highlighted_tokens * 255)).resize((very_easy_eval_image.image.width, very_easy_eval_image.image.height))
+    highlighted = np.array(highlighted_image) / 255
 
-    visualize_highlight(
-        very_easy_eval_image,
-        highlight(very_easy_eval_image, food_item_indicator_function)
-    )
+    # visualize_highlight(very_easy_eval_image, highlighted_tokens)
+
+    plt.title("Sampling mask")
+    plt.imshow(very_easy_eval_image.image)
+    plt.imshow(highlighted > 0.5, alpha=(highlighted > 0.5).astype(np.float32))
+    plt.axis('off')
+    plt.show()
+
+    # Sample a bunch of spread-out points within this mask.
+    # Uses efficient method that is unbiased and enforces
+    # a minimum distance between points.
+    # Because SAM's mask decoder is so lightweight, we can afford to sample a lot of points.
+    X, Y = sample_from_mask(highlighted > 0.5).T
+
+    # Plot the kept coordinates.
+    plt.title("Mask sampling points")
+    plt.imshow(very_easy_eval_image.image)
+    plt.scatter(X, Y, color='red')
+    plt.axis('off')
+    plt.show()
+
+    import time
+    start = time.time()
+
+    # Get masks at these points.
+    masks = points_to_masks(very_easy_eval_image.image, [(x, y) for x, y in zip(X, Y)])
+    # Score each mask according to the food item indicator function
+    # This will remove masks with low IoU (e.g. points that were slightly at the border of objects)
+    scores = [highlighted[mask > 0.5].mean() for mask in masks]
+    kept_masks = [mask for mask, score in zip(masks, scores) if score > 0.75]
+    print("Scores:", scores)
+    t1 = time.time()
+
+    print("masks w/ good score:", len(kept_masks))
+
+    plt.title("Original kept masks")
+    plt.imshow(very_easy_eval_image.image)
+    for mask in kept_masks:
+        plt.imshow(mask, alpha=mask.astype(np.float32))
+    plt.axis('off')
+    plt.show()
+
+    # Calculate IoU between masks
+    ious = np.zeros((len(kept_masks), len(kept_masks)))
+    for i, mask1 in enumerate(kept_masks):
+        for j, mask2 in enumerate(kept_masks):
+            ious[i, j] = (mask1 & mask2).sum() / (mask1 | mask2).sum()
+
+    # Remove mask indexes which overlap substantially with other masks
+    # Prefer the lower-indexed mask
+    kept_indices = np.ones(len(kept_masks), dtype=bool)
+    for i in range(len(kept_masks)):
+        for j in range(i + 1, len(kept_masks)):
+            if ious[i, j] > 0.5:
+                kept_indices[i] = False
+                break
+            
+    kept_masks = [mask for mask, keep in zip(kept_masks, kept_indices) if keep]
+
+    t2 = time.time()
+
+    print("points -> masks:", t1 - start)
+    print("mask iou:", t2 - t1)
+
+    # Plot the kept masks
+    print("Number of masks:", len(kept_masks))
+
+    plt.title("Kept masks")
+    plt.imshow(very_easy_eval_image.image)
+    for mask in kept_masks:
+        plt.imshow(mask, alpha=mask.astype(np.float32))
+    plt.axis('off')
+    plt.show()
 
     return
 
