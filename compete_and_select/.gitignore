@@ -1,5 +1,4 @@
 key
 GroundingDINO
-*.png
 .env
 plan_logs

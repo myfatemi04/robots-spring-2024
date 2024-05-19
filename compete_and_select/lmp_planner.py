@@ -19,26 +19,11 @@ along with a notion of the task at hand
 with open("prompts/code_generation.md") as f:
     code_generation_prompt = f.read()
 
-def reason_and_generate_code(context, image: PIL.Image.Image, client: OpenAI, model='gpt-4-vision-preview'):
-    # Returns the rationale and code that was generated.
+def reason_and_generate_code(context, client: OpenAI, model='gpt-4-vision-preview'):
+    """ Returns the rationale and code that was generated. """
     cmpl = client.chat.completions.create(
         model=model,
-        messages=[
-            *context,
-            UMessage(
-                content=[
-                    TContent(
-                        type="text",
-                        text="This is the current observation. Please write your plan and the code to execute."
-                    ),
-                    IContent(
-                        type="image_url",
-                        image_url={"url": image_url(image)}
-                    )
-                ],
-                role="user",
-            )
-        ]
+        messages=[*context, {'role': 'system', 'content': code_generation_prompt}]
     )
     raw_content = cmpl.choices[0].message.content
     assert raw_content is not None

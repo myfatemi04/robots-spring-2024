@@ -39,6 +39,7 @@ Information about which objects should be selected may span several steps.
 
 """
 
+import cv2
 import matplotlib.pyplot as plt
 import PIL.Image
 from agent_state import AgentState
@@ -148,11 +149,15 @@ def agent_loop():
     code_executor = StatefulLanguageModelProgramExecutor(vars={"ask": ask})
     client = OpenAI()
 
+
     # Wait for calibration
     has_pcd = False
     while not has_pcd:
         (rgbs, pcds) = rgbd.capture()
         has_pcd = pcds[0] is not None
+        plt.title("Camera 0")
+        plt.imshow(rgbs[0])
+        plt.pause(0.05)
 
     print(rgbs[0].shape)
 
@@ -164,29 +169,32 @@ def agent_loop():
     #     print(event_stream)
 
     # Create a custom event stream
-    scene = Scene([PIL.Image.open("sample_images/IMG_8651.jpeg")], None, agent_state)
+    scene = Scene([PIL.Image.fromarray(rgbs[0])], None, agent_state)
+    # scene = Scene([PIL.Image.open("sample_images/IMG_8651.jpeg")], None, agent_state)
     # detections = detect(scene.imgs[0], "deck of cards")
     # drawn = draw_set_of_marks(scene.imgs[0], detections)
     # plt.title('Detections')
     # plt.imshow(drawn)
     # plt.axis('off')
     # plt.show()
+
+    scene.imgs[0].save("sample_images/oculus_and_headphones.png")
+
+    return
     
     # event_stream.write(VisualPerceptionEvent(scene))
-    event_stream.write(VerbalFeedbackEvent("Please put these items into the bowl."))
+    event_stream.write(VerbalFeedbackEvent("Please pick up the Oculus controller."))
     
     for i in range(2):
         # rgbs, pcds = rgbd.capture()
         # imgs = [PIL.Image.fromarray(rgb) for rgb in rgbs]
-        imgs = [PIL.Image.open("sample_images/IMG_8651.jpeg")]
-        scene = Scene(imgs, None, agent_state)
-        event_stream.write(VisualPerceptionEvent(imgs, [None] * len(imgs)))
+        # imgs = [PIL.Image.open("sample_images/IMG_8651.jpeg")]
+        # scene = Scene(imgs, None, agent_state)
+        # event_stream.write(VisualPerceptionEvent(imgs, [None] * len(imgs)))
+        event_stream.write(VisualPerceptionEvent(scene.imgs, [None]))
 
         context = create_primary_context(event_stream)
-        context.append(
-            {'role': 'system', 'content': code_generation_prompt}
-        )
-        rationale, code, raw_content = reason_and_generate_code(context, imgs[0], client)
+        rationale, code, raw_content = reason_and_generate_code(context, client)
         event_stream.write(CodeActionEvent(rationale, code, raw_content))
 
         print("Reasoning and code generation:")

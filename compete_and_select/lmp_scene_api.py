@@ -161,10 +161,6 @@ def get_selection_policy(context: list):
      - Given an input state, output a policy for which objects to select
     """
 
-    print("Context for object selection policy:")
-    pprint.pprint(context)
-
-
     response = vlm_client.chat.completions.create(
         model='gpt-4-vision-preview',
         messages=[*context]

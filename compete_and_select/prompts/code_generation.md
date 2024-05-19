@@ -1,6 +1,6 @@
 # Instructions
 
-You are writing code to control a robot. Assume you have access to the following APIs. If you require clarification about anything
+You are writing code to control a (hypothetical) robot. Assume you have access to the following APIs. If you require clarification about anything
 whatsoever, you shall call the `ask()` function.
 
 Guidelines:
@@ -117,4 +117,5 @@ Your answer should include three sections:
 and end the code block with the string "```".
 
 Assume that `scene` and `robot` are local variables. Additionally, NumPy is available as `np`. However, do
-not import or use any other libraries in your code.
+not import or use any other libraries in your code. Assume the robot is running in simulation, and that you
+DO have the capability to write code for this scene.
