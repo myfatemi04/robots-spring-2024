@@ -133,6 +133,8 @@ def create_vision_model_context(event_stream: EventStream):
     return context
 
 def agent_loop():
+    from rgbd import RGBD
+
     event_stream = EventStream()
     memory_bank = MemoryBank()
     agent_state = AgentState(event_stream, memory_bank)
@@ -142,9 +144,17 @@ def agent_loop():
         event_stream.write(VerbalFeedbackEvent(result))
         return result
 
-    # rgbd = RGBD(num_cameras=1)
+    rgbd = RGBD(num_cameras=1)
     code_executor = StatefulLanguageModelProgramExecutor(vars={"ask": ask})
     client = OpenAI()
+
+    # Wait for calibration
+    has_pcd = False
+    while not has_pcd:
+        (rgbs, pcds) = rgbd.capture()
+        has_pcd = pcds[0] is not None
+
+    print(rgbs[0].shape)
 
     # start_i = 0
     # if os.path.exists("event_stream.pkl"):
@@ -172,35 +182,6 @@ def agent_loop():
         scene = Scene(imgs, None, agent_state)
         event_stream.write(VisualPerceptionEvent(imgs, [None] * len(imgs)))
 
-#         rationale = """
-# Reasoning:
-# The task is to provide a snack from the available options in the image, which include a bag of Blue Diamond Almonds, a packet of Teddy Grahams, and a bag of Seasoned Croutons. The almonds and Teddy Grahams are typical snack choices, while croutons are generally used in salads. Given that the teddy grahams and almonds are more conventional snack options, I would choose one of these.
-
-# Short Plan:
-# 1. Decide which snack to pick up; considering typical snack preferences, I will choose the more universally appealing snack, which are the almonds or Teddy Grahams.
-# 2. Locate the chosen snack pack using the scene detection.
-# 3. Direct the robot to move its hand to the location of the snack pack.
-# 4. Grasp the snack pack.
-# 5. Move the robot hand back to the starting position with the snack pack.
-
-# Code Implementation:
-# <Code block>"""
-#         code = """
-# # Assume the Teddy Grahams are the chosen snack as they are likely more appealing to a larger audience, including children
-# snack = scene.choose('packet', 'Teddy Grahams')
-
-# # Direct the robot to move its hand to the location of the chosen snack pack
-# robot.move_to(snack.centroid)
-
-# # Grasp the snack pack
-# robot.grasp(snack)
-
-# # Move the robot hand back to a predetermined starting position with the snack pack
-# # Assuming the starting position is [0, 0, 0] for this example
-# robot.move_to([0, 0, 0])
-# """
-#         raw_content = rationale.replace("<Code block>", code)
-
         context = create_primary_context(event_stream)
         context.append(
             {'role': 'system', 'content': code_generation_prompt}
@@ -215,19 +196,8 @@ def agent_loop():
             code_executor.update(scene=scene)
             status, output = code_executor.execute(code)
             if not status:
-                assert output is not None, "Cannot return a False status without an output."
                 print(f"Error: {output}")
-                event_stream.write(ExceptionEvent("CodeExecutionError", output))
-
-        # if i == 0:
-        #     with open("event_stream.pkl", "wb") as f:
-        #         pickle.dump(event_stream, f)
-
-        # Use an ask/tell API to interact with the human.
-        # All interactions will be performed with code, including speaking to the human.
-        # LLM requests access to the robot. (e.g. robot = access_robot())
-
-    pass
+                event_stream.write(ExceptionEvent("CodeExecutionError", output)) # type: ignore
 
 if __name__ == '__main__':
     agent_loop()
