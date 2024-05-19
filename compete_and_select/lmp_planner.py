@@ -6,8 +6,6 @@ from typing import List
 import numpy as np
 import PIL.Image
 from openai import OpenAI
-from openai.types.chat import ChatCompletionUserMessageParam as UMessage, ChatCompletionContentPartTextParam as TContent, ChatCompletionContentPartImageParam as IContent
-from vlms import image_message, image_url
 from lmp_executor import StatefulLanguageModelProgramExecutor
 from memory_bank_v2 import MemoryBank
 

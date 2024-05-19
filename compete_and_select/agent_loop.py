@@ -39,7 +39,9 @@ Information about which objects should be selected may span several steps.
 
 """
 
-import cv2
+import dotenv
+dotenv.load_dotenv()
+
 import matplotlib.pyplot as plt
 import PIL.Image
 from agent_state import AgentState
@@ -51,7 +53,6 @@ from lmp_planner import (StatefulLanguageModelProgramExecutor,
 from lmp_scene_api import Scene
 from memory_bank_v2 import MemoryBank
 from openai import OpenAI
-from select_object_v2 import draw_set_of_marks
 from vlms import image_message
 
 with open("prompts/code_generation.md") as f:
@@ -135,6 +136,7 @@ def create_vision_model_context(event_stream: EventStream):
 
 def agent_loop():
     from rgbd import RGBD
+    from lmp_scene_api import Robot
 
     event_stream = EventStream()
     memory_bank = MemoryBank()
@@ -148,7 +150,7 @@ def agent_loop():
     rgbd = RGBD(num_cameras=1)
     code_executor = StatefulLanguageModelProgramExecutor(vars={"ask": ask})
     client = OpenAI()
-
+    robot = Robot('192.168.1.222')
 
     # Wait for calibration
     has_pcd = False
@@ -169,7 +171,7 @@ def agent_loop():
     #     print(event_stream)
 
     # Create a custom event stream
-    scene = Scene([PIL.Image.fromarray(rgbs[0])], None, agent_state)
+    
     # scene = Scene([PIL.Image.open("sample_images/IMG_8651.jpeg")], None, agent_state)
     # detections = detect(scene.imgs[0], "deck of cards")
     # drawn = draw_set_of_marks(scene.imgs[0], detections)
@@ -178,20 +180,14 @@ def agent_loop():
     # plt.axis('off')
     # plt.show()
 
-    scene.imgs[0].save("sample_images/oculus_and_headphones.png")
-
-    return
-    
     # event_stream.write(VisualPerceptionEvent(scene))
     event_stream.write(VerbalFeedbackEvent("Please pick up the Oculus controller."))
     
     for i in range(2):
-        # rgbs, pcds = rgbd.capture()
-        # imgs = [PIL.Image.fromarray(rgb) for rgb in rgbs]
-        # imgs = [PIL.Image.open("sample_images/IMG_8651.jpeg")]
-        # scene = Scene(imgs, None, agent_state)
-        # event_stream.write(VisualPerceptionEvent(imgs, [None] * len(imgs)))
-        event_stream.write(VisualPerceptionEvent(scene.imgs, [None]))
+        rgbs, pcds = rgbd.capture()
+        imgs = [PIL.Image.fromarray(rgb) for rgb in rgbs]
+        scene = Scene(imgs, pcds, agent_state)
+        event_stream.write(VisualPerceptionEvent(scene.imgs, scene.pcds))
 
         context = create_primary_context(event_stream)
         rationale, code, raw_content = reason_and_generate_code(context, client)
@@ -201,7 +197,7 @@ def agent_loop():
         print(raw_content)
 
         if code is not None:
-            code_executor.update(scene=scene)
+            code_executor.update(scene=scene, robot=robot)
             status, output = code_executor.execute(code)
             if not status:
                 print(f"Error: {output}")
