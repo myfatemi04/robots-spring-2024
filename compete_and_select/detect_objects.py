@@ -6,12 +6,13 @@ import numpy as np
 import PIL.Image as Image
 import torch
 import torchvision.ops as ops
-from transformers import (CLIPProcessor, CLIPVisionModelWithProjection,
+from transformers import (CLIPProcessor, CLIPVisionModelWithProjection, CLIPTextModelWithProjection,
                           Owlv2ForObjectDetection, Owlv2Processor)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 clip_vision_model: CLIPVisionModelWithProjection = CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").to(device) # type: ignore
+clip_text_model: CLIPTextModelWithProjection = CLIPTextModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").to(device) # type: ignore
 clip_processor: CLIPProcessor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14") # type: ignore
 
 def get_clip_embeddings(image: Image.Image, return_np=True):
