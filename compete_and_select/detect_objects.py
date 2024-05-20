@@ -6,42 +6,10 @@ import numpy as np
 import PIL.Image as Image
 import torch
 import torchvision.ops as ops
-from transformers import (CLIPProcessor, CLIPVisionModelWithProjection, CLIPTextModelWithProjection,
-                          Owlv2ForObjectDetection, Owlv2Processor)
+from clip_feature_extraction import embed_box
+from transformers import Owlv2ForObjectDetection, Owlv2Processor
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-clip_vision_model: CLIPVisionModelWithProjection = CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").to(device) # type: ignore
-clip_text_model: CLIPTextModelWithProjection = CLIPTextModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").to(device) # type: ignore
-clip_processor: CLIPProcessor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14") # type: ignore
-
-def get_clip_embeddings(image: Image.Image, return_np=True):
-    result = clip_vision_model(
-        **clip_processor(images=image, return_tensors='pt').to(device).pixel_values
-    )
-    embedding_pooled = result.last_hidden_state[0, 0, :]
-    embedding_map = result.last_hidden_state[0, 1:, :].view(16, 16, -1)
-    result = (embedding_pooled, embedding_map)
-    if return_np:
-        result = tuple(embedding.detach().cpu().numpy() for embedding in result)
-    
-    return result
-
-def embed_box(image: Image.Image, xmin, ymin, xmax, ymax):
-    width = xmax - xmin
-    height = ymax - ymin
-    center_x = (xmax + xmin) // 2
-    center_y = (ymax + ymin) // 2
-    # ensure square image to prevent warping
-    size = max(224, width, height)
-    object_img = image.crop((center_x-size//2, center_y-size//2, center_x+size//2, center_y+size//2))
-    rotated_1 = object_img.rotate(5, expand=False)
-    rotated_2 = object_img.rotate(-5, expand=False)
-    object_emb_output = clip_vision_model(
-        **clip_processor(images=[object_img, rotated_1, rotated_2], return_tensors='pt').to(device) # type: ignore
-    )
-    image_embeds = object_emb_output.last_hidden_state[:, 0, :]
-    return image_embeds[0].detach().cpu().numpy(), image_embeds[1:].detach().cpu().numpy()
 
 
 # create clip embeddings for objects

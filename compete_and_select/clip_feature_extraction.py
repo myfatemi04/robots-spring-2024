@@ -1,14 +1,44 @@
-import matplotlib.pyplot as plt
+import PIL.Image
+from matplotlib import pyplot as plt
 import numpy as np
 import torch
-from detect_objects import clip_processor, clip_text_model, clip_vision_model
-from transformers.models.clip.modeling_clip import CLIPAttention, CLIPEncoderLayer, CLIPVisionModel
-from PIL import Image
+from transformers import (CLIPAttention, CLIPEncoderLayer, CLIPProcessor,
+                          CLIPTextModelWithProjection, CLIPVisionModel,
+                          CLIPVisionModelWithProjection)
 
-import numpy as np
-import torch
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+clip_vision_model: CLIPVisionModelWithProjection = CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").to(device) # type: ignore
+clip_text_model: CLIPTextModelWithProjection = CLIPTextModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").to(device) # type: ignore
+clip_processor: CLIPProcessor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14") # type: ignore
+
+def get_clip_embeddings(image: PIL.Image.Image, return_np=True):
+    result = clip_vision_model(
+        **clip_processor(images=image, return_tensors='pt').to(device).pixel_values
+    )
+    embedding_pooled = result.last_hidden_state[0, 0, :]
+    embedding_map = result.last_hidden_state[0, 1:, :].view(16, 16, -1)
+    result = (embedding_pooled, embedding_map)
+    if return_np:
+        result = tuple(embedding.detach().cpu().numpy() for embedding in result)
+    
+    return result
+
+def embed_box(image: PIL.Image.Image, xmin, ymin, xmax, ymax):
+    width = xmax - xmin
+    height = ymax - ymin
+    center_x = (xmax + xmin) // 2
+    center_y = (ymax + ymin) // 2
+    # ensure square image to prevent warping
+    size = max(224, width, height)
+    object_img = image.crop((center_x-size//2, center_y-size//2, center_x+size//2, center_y+size//2))
+    rotated_1 = object_img.rotate(5, expand=False)
+    rotated_2 = object_img.rotate(-5, expand=False)
+    object_emb_output = clip_vision_model(
+        **clip_processor(images=[object_img, rotated_1, rotated_2], return_tensors='pt').to(device) # type: ignore
+    )
+    image_embeds = object_emb_output.last_hidden_state[:, 0, :]
+    return image_embeds[0].detach().cpu().numpy(), image_embeds[1:].detach().cpu().numpy()
 
 # Adapted from github.com/f3rm/f3rm
 def interpolate_positional_embedding(
@@ -44,7 +74,7 @@ def interpolate_positional_embedding(
     w0, h0 = w0 + 0.1, h0 + 0.1
 
     # Interpolate
-    patch_per_ax = int(np.sqrt(num_og_patches))
+    patch_per_ax = int(num_og_patches ** 0.5)
     patch_pos_embed_interp = torch.nn.functional.interpolate(
         patch_pos_embed.reshape(1, patch_per_ax, patch_per_ax, dim).permute(0, 3, 1, 2),
         # (1, dim, patch_per_ax, patch_per_ax)
@@ -62,7 +92,54 @@ def interpolate_positional_embedding(
     pos_embed_interp = torch.cat([class_pos_embed, patch_pos_embed_interp], dim=0)  # (w0 * h0 + 1, dim)
     return pos_embed_interp.to(x.dtype)
 
-def get_clip_embeddings_dense_hops(image: Image.Image):
+def embed_interpolated(clip_vision_model: CLIPVisionModel, x: torch.Tensor):
+    # Get pre-positional-embedding tokens.
+    _, _, h, w = x.shape
+    # (b, d, h, w)
+    x = clip_vision_model.vision_model.embeddings.patch_embedding(x)
+    # (b, d, hw)
+    x = x.reshape(x.shape[0], x.shape[1], -1)
+    # (b, hw, d)
+    x = x.permute(0, 2, 1)
+    # add class embedding
+    cls_repeated = clip_vision_model.vision_model.embeddings.class_embedding.reshape(1, 1, -1).expand(x.shape[0], -1, -1)
+    # prepend image tokens with class embedding
+    x = torch.cat([cls_repeated, x], dim=1)
+
+    # Interpolate positional embeddings.
+    patch_size = 14
+    posenc_interp = interpolate_positional_embedding(
+        clip_vision_model.vision_model.embeddings.position_embedding.weight.data,
+        x,
+        patch_size,
+        w,
+        h,
+    )
+    x = x + posenc_interp
+
+    return x
+
+def get_clip_embeddings_dense_interpolated(image: PIL.Image.Image):
+    x = clip_processor(images=image, return_tensors='pt', output_hidden_states=True, do_center_crop=False).pixel_values.to(device)
+    x = embed_interpolated(clip_vision_model, x)
+    x = clip_vision_model.vision_model.pre_layrnorm(x)
+    result = clip_vision_model.vision_model.encoder(x, output_hidden_states=True)
+
+    h0 = image.height // 14
+    w0 = image.width // 14
+
+    embedding_map_ = result.hidden_states[-2][0, 1:, :].view(h0, w0, -1)
+    # apply value projection, following MaskCLIP parameterization trick.
+    last_enc: CLIPEncoderLayer = clip_vision_model.vision_model.encoder.layers[-1] # type: ignore
+    last_attn: CLIPAttention = clip_vision_model.vision_model.encoder.layers[-1].self_attn
+    embedding_map_ = last_enc.layer_norm1(embedding_map_)
+    embedding_map_ = last_attn.v_proj(embedding_map_)
+    embedding_map_ = last_attn.out_proj(embedding_map_)
+    embedding_map_ = clip_vision_model.vision_model.post_layernorm(embedding_map_)
+    embedding_map_ = clip_vision_model.visual_projection(embedding_map_)
+    return embedding_map_.detach().cpu().numpy()
+
+def get_clip_embeddings_dense_hops(image: PIL.Image.Image):
     # Encode the image using a hop length of 1/2 the CLIP input size.
     left = 0
     top = 0
@@ -102,55 +179,8 @@ def get_clip_embeddings_dense_hops(image: Image.Image):
     embedding_map /= embedding_count[..., None]
     return embedding_map
 
-def embed_interpolated(clip_vision_model: CLIPVisionModel, x: torch.Tensor):
-    # Get pre-positional-embedding tokens.
-    _, _, h, w = x.shape
-    # (b, d, h, w)
-    x = clip_vision_model.vision_model.embeddings.patch_embedding(x)
-    # (b, d, hw)
-    x = x.reshape(x.shape[0], x.shape[1], -1)
-    # (b, hw, d)
-    x = x.permute(0, 2, 1)
-    # add class embedding
-    cls_repeated = clip_vision_model.vision_model.embeddings.class_embedding.reshape(1, 1, -1).expand(x.shape[0], -1, -1)
-    # prepend image tokens with class embedding
-    x = torch.cat([cls_repeated, x], dim=1)
-
-    # Interpolate positional embeddings.
-    patch_size = 14
-    posenc_interp = interpolate_positional_embedding(
-        clip_vision_model.vision_model.embeddings.position_embedding.weight.data,
-        x,
-        patch_size,
-        w,
-        h,
-    )
-    x = x + posenc_interp
-
-    return x
-
-def get_clip_embeddings_dense_interpolated(image: Image.Image):
-    x = clip_processor(images=image, return_tensors='pt', output_hidden_states=True, do_center_crop=False).pixel_values.to(device)
-    x = embed_interpolated(clip_vision_model, x)
-    x = clip_vision_model.vision_model.pre_layrnorm(x)
-    result = clip_vision_model.vision_model.encoder(x, output_hidden_states=True)
-
-    h0 = image.height // 14
-    w0 = image.width // 14
-
-    embedding_map_ = result.hidden_states[-2][0, 1:, :].view(h0, w0, -1)
-    # apply value projection, following MaskCLIP parameterization trick.
-    last_enc: CLIPEncoderLayer = clip_vision_model.vision_model.encoder.layers[-1] # type: ignore
-    last_attn: CLIPAttention = clip_vision_model.vision_model.encoder.layers[-1].self_attn
-    embedding_map_ = last_enc.layer_norm1(embedding_map_)
-    embedding_map_ = last_attn.v_proj(embedding_map_)
-    embedding_map_ = last_attn.out_proj(embedding_map_)
-    embedding_map_ = clip_vision_model.vision_model.post_layernorm(embedding_map_)
-    embedding_map_ = clip_vision_model.visual_projection(embedding_map_)
-    return embedding_map_.detach().cpu().numpy()
-
 def test():
-    image = Image.open("sample_images/oculus_and_headphones.png")
+    image = PIL.Image.open("sample_images/oculus_and_headphones.png")
     # This crops to a region of interest near the robot.
     image = image.crop((80 + 112, 720 - 672 + 224, 1200 - 112, 720))
     image = image.resize((224 * 2, 224))
@@ -169,7 +199,7 @@ def test():
     highlight = np.einsum("ijk,k->ij", dense_embeddings, text_embedding)
     highlight -= highlight.min()
     highlight /= highlight.max()
-    highlight_img = Image.fromarray((highlight * 255).astype(np.uint8))
+    highlight_img = PIL.Image.fromarray((highlight * 255).astype(np.uint8))
     highlight_img = highlight_img.resize((224 * 2, 224))
     highlight = np.array(highlight_img) / 255
 
@@ -181,3 +211,4 @@ def test():
 
 if __name__ == '__main__':
     test()
+

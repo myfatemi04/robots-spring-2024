@@ -1,6 +1,7 @@
 import os
 from matplotlib import pyplot as plt
 from detect_objects_few_shot import select_bounding_box, ImageObservation, boxes_to_masks
+import detect_objects_few_shot as D
 import PIL.Image
 import json
 
@@ -48,8 +49,19 @@ def load_memories(folder):
     img_blurred = img.filter(PIL.ImageFilter.GaussianBlur(5))
     masks = boxes_to_masks(img, [group['bboxes'] for group in groups])
 
+    # Resize image to be a multiple of 14
+    w = img.width - (img.width % 14)
+    h = img.height - (img.height % 14)
+    img = img.crop((0, 0, w, h))
+
+    plt.imshow(img)
+    for mask in masks:
+        plt.imshow(mask, alpha=mask.astype(float))
+    plt.show()
+
     ImageObservation(img)
     ImageObservation(img_blurred)
 
 # collect_memories_for_image(PIL.Image.open("sample_images/IMG_8618.jpeg"))
+load_memories("memories/0")
 

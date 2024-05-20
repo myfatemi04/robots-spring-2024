@@ -7,13 +7,13 @@ import numpy as np
 import openai
 import PIL.Image
 import PIL.ImageFilter
-from detect_objects import detect, embed_box, get_clip_embeddings
-from matplotlib.patches import Rectangle
+import torch
+from detect_objects import get_clip_embeddings
 from matplotlib.widgets import RectangleSelector
-from memory_bank_v2 import MemoryBank
-from select_object_v2 import draw_set_of_marks
+from sam import sam_model, sam_processor
 from sklearn.svm import SVC
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def select_bounding_box(image):
     plt.rcParams['figure.figsize'] = (20, 10)
@@ -54,7 +54,7 @@ def select_bounding_box(image):
     return int(x1), int(y1), int(x2), int(y2)
 
 def teach_robot():
-    memory_bank = MemoryBank()
+    # memory_bank = MemoryBank()
 
     # Here, the human provides some direct annotations for what to do (e.g. circling an object and saying what to do with it)
     # Human gives an instruction.
@@ -227,14 +227,6 @@ def visualize_highlight(image: ImageObservation, grid_match_score):
 
     plt.axis('off')
     plt.show()
-
-import torch
-from transformers import SamModel, SamProcessor
-
-# to create a better mask, we'll use the bounding boxes as prompts for SAM, which can try to exclude some of the background
-device = "cuda" if torch.cuda.is_available() else "cpu"
-sam_model: SamModel = SamModel.from_pretrained("facebook/sam-vit-base").to(device) # type: ignore
-sam_processor: SamProcessor = SamProcessor.from_pretrained("facebook/sam-vit-base") # type: ignore
 
 def boxes_to_masks(image: PIL.Image.Image, input_boxes: List[Tuple[int, int, int, int]]):
     inputs = sam_processor(images=[image], input_boxes=[[list(box) for box in input_boxes]], return_tensors="pt").to(device)

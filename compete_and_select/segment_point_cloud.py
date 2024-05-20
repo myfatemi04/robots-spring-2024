@@ -12,12 +12,12 @@ from matplotlib import pyplot as plt
 from ransac import get_bounding_box_ransac
 from set_axes_equal import set_axes_equal
 from transformers import SamModel, SamProcessor
-
+import sam
 
 class SamPointCloudSegmenter():
     def __init__(self, device='cuda' if torch.cuda.is_available() else 'cpu', render_2d_results=False):
-        self.model: SamModel = SamModel.from_pretrained("facebook/sam-vit-base").to(device) # type: ignore
-        self.processor: SamProcessor = SamProcessor.from_pretrained("facebook/sam-vit-base") # type: ignore
+        self.model: SamModel = sam.sam_model
+        self.processor: SamProcessor = sam.sam_processor
         self.render_2d_results = render_2d_results
         self.device = device
 
