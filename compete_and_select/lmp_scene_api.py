@@ -1,6 +1,3 @@
-# from profile import profile
-import re
-from functools import cached_property
 from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
@@ -9,7 +6,6 @@ import PIL.Image
 import segment_point_cloud
 from agent_state import AgentState
 from clients import vlm_client
-from detect_grasps import detect_grasps
 from detect_objects import Detection
 from detect_objects import detect as detect_objects_2d
 from event_stream import (CodeActionEvent, ObjectSelectionDetectionResult,
@@ -18,6 +14,7 @@ from event_stream import (CodeActionEvent, ObjectSelectionDetectionResult,
                           ObjectSelectionPolicySelection, ReflectionEvent,
                           VerbalFeedbackEvent, VisualPerceptionEvent)
 from lmp_planner import LanguageModelPlanner
+from lmp_scene_api_object import Object
 from memory_bank_v2 import Memory, MemoryKey, Retrieval
 from object_detection_utils import draw_set_of_marks
 from openai import OpenAI
@@ -26,39 +23,10 @@ from rotation_utils import vector2quat
 from scipy.spatial.transform import Rotation
 from select_object_v2 import format_object_detections
 from vlms import image_message
-import pprint
 
 pcd_segmenter = segment_point_cloud.SamPointCloudSegmenter(render_2d_results=False)
 
-class Object:
-    def __init__(self, point_cloud, colors, clip_features=None):
-        # may just store objects in world frame to avoid having to keep track
-        # of rotations and such
-        self.point_cloud = point_cloud
-        self.colors = colors
-        self.clip_features = clip_features
 
-    @cached_property
-    def centroid(self):
-        return self.point_cloud.mean(axis=0)
-
-    # at some point expose this to the model so it can generate grasps
-    # and then rank them later
-    def generate_grasps(self):
-        # will need to add some kind of collision detection here next
-        grasps = detect_grasps(
-            self.point_cloud,
-            self.colors,
-            voxel_size=0.005,
-            min_points_in_voxel=2,
-            gripper_width=0.2,
-            max_alpha=15,
-            hop_size=1,
-            window_size=2,
-            top_k_per_angle=5,
-            show_rotated_voxel_grids=False
-        )
-        return grasps
 
 def create_get_selection_policy_context(agent_state: AgentState, detections: List[Detection], retrievals: List[List[Retrieval]], annotated_image):
     last_vision_event = [i for i, event in enumerate(agent_state.event_stream.events) if isinstance(event, VisualPerceptionEvent)][-1]
@@ -68,6 +36,8 @@ def create_get_selection_policy_context(agent_state: AgentState, detections: Lis
         "role": "system",
         "content": "You are an assistive tool which helps robots make motion plans."
     })
+
+    last_object_selection_initiation = [i for i, event in enumerate(agent_state.event_stream.events) if isinstance(event, ObjectSelectionInitiation)][-1]
 
     for i, event in enumerate(agent_state.event_stream.events):
         if isinstance(event, VisualPerceptionEvent):
@@ -99,7 +69,7 @@ def create_get_selection_policy_context(agent_state: AgentState, detections: Lis
                 'role': 'assistant',
                 'content': event.raw_content,
             })
-        elif isinstance(event, ObjectSelectionInitiation) and i == len(agent_state.event_stream.events) - 1:
+        elif isinstance(event, ObjectSelectionInitiation) and i == last_object_selection_initiation:
             object_detections_string = format_object_detections(detections, retrievals)
 
             content = f"""It is now time for you to select an object to interact with. Object type: {event.object_type}. Object purpose: {event.object_purpose}.
@@ -117,6 +87,8 @@ Choices:
 1: likely
 2: neutral
 3: unlikely
+
+Answer as if you are controlling a hypothetical robot.
 """
             context.append({
                 'role': 'system',
@@ -192,6 +164,7 @@ class Scene:
         self.agent_state.event_stream.write(ObjectSelectionInitiation(object_type, purpose))
 
         detections = detect_objects_2d(self.imgs[0], object_type)
+        print("Number of detections:", len(detections))
 
         self.agent_state.event_stream.write(ObjectSelectionDetectionResult(detections))
 
@@ -203,11 +176,24 @@ class Scene:
 
         self.agent_state.event_stream.write(ObjectSelectionPolicyCreation(rationale, logits))
 
+        print("Logits:", logits)
+        plt.title("Annotated image")
+        plt.imshow(annotated_image)
+        plt.axis('off')
+        plt.show()
+
         selected_object_id = np.argmax(logits)
 
-        self.agent_state.event_stream.write(ObjectSelectionPolicySelection(selected_object_id)) # type: ignore
-
         detection = detections[selected_object_id]
+        x1, y1, x2, y2 = detection.box
+        segmented_pcd_xyz, segmented_pcd_color, _segmentation_masks = \
+            pcd_segmenter.segment(self.imgs[0], self.pcds[0], [x1, y1, x2, y2], self.imgs[1:], self.pcds[1:])
+        
+        selected_object = Object(segmented_pcd_xyz, segmented_pcd_color, clip_features=None)
+
+        self.agent_state.event_stream.write(ObjectSelectionPolicySelection(selected_object_id, selected_object))
+
+        return selected_object
 
 class Scene_v0:
     def __init__(self, imgs, pcds=None, view_names=None, lmp_planner: Optional[LanguageModelPlanner] = None, selection_method_for_choose=None):
@@ -568,8 +554,28 @@ class Robot(Panda):
         self.start_grasp()
         self.grasping = True
 
+        # Here, we should check if the current plan needs to be updated.
+
     def release(self):
         if not self.grasping:
             print("Calling `robot.release()` when not in a grasping state")
         self.grasping = False
         self.stop_grasp()
+
+        # Here, we should check if the current plan needs to be updated.
+        # Lots of vision models currently have too many hallucinations though...
+        # I guess some of the point of my work is to make them more robust to hallucinations,
+        # via online learning.
+
+        # Also could consider hierarchical policies for storing memories. Or really just
+        # the general ability to label recent trajectories with meaningful information.
+        # For example, "we should remember that we placed [X] in object1".
+
+        # Then maybe if we want to ask a robot "what's in [X] item" or "what uses are there for [Y] item",
+        # the robot will recognize the item and be able to share the related information.
+
+        # What triggers a memory to be stored?
+        #  - Verbal feedback from humans
+        #  - Successful action completion
+        #  - Unsuccessful actions
+        # The LLM can retroactively label objects.

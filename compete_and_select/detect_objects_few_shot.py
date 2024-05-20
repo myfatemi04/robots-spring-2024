@@ -437,6 +437,6 @@ def artificial_narration():
     ]).choices[0].message.content
     print(content)
 
-
-# teach_robot()
-artificial_narration()
+if __name__ == '__main__':
+    # teach_robot()
+    artificial_narration()
