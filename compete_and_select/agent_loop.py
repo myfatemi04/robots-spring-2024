@@ -39,7 +39,12 @@ Information about which objects should be selected may span several steps.
 
 """
 
+import os
+import pickle
+
 import dotenv
+from rotation_utils import vector2quat
+
 dotenv.load_dotenv()
 
 import matplotlib.pyplot as plt
@@ -93,26 +98,27 @@ def create_primary_context(event_stream: EventStream, image_observation_overwrit
             })
     return context
 
-def create_vision_model_context(event_stream: EventStream):
+def create_vision_model_context(event_stream: EventStream, max_vision_events_to_include=1):
     """
     We predict P(useful description | visual input and prior dialogue)
     """
-    last_vision_event = [i for i, event in enumerate(event_stream.events) if isinstance(event, VisualPerceptionEvent)][-1]
+    vision_events = [i for i, event in enumerate(event_stream.events) if isinstance(event, VisualPerceptionEvent)]
+    vision_event_cutoff = vision_events[-max_vision_events_to_include]
     context = []
     for i, event in enumerate(event_stream.events):
         if isinstance(event, VisualPerceptionEvent):
-            if i < last_vision_event:
-                context.append({
-                    'role': 'system',
-                    'content': '<Prior observation>'
-                })
-            else:
+            if i >= vision_event_cutoff:
                 context.append({
                     'role': 'system',
                     'content': [
                         {'type': 'text', 'text': "Here is what you currently see."},
-                        image_message(event.scene.imgs[0]), # type: ignore
+                        image_message(event.imgs[0]), # type: ignore
                     ]
+                })
+            else:
+                context.append({
+                    'role': 'system',
+                    'content': '<Prior observation>'
                 })
         elif isinstance(event, ReflectionEvent):
             context.append({
@@ -129,14 +135,11 @@ def create_vision_model_context(event_stream: EventStream):
                 'role': 'assistant',
                 'content': event.raw_content,
             })
-    context.append(
-        {'role': 'system', 'content': code_generation_prompt}
-    )
     return context
 
 def agent_loop():
-    from rgbd import RGBD
     from lmp_scene_api import Robot
+    from rgbd import RGBD
 
     event_stream = EventStream()
     memory_bank = MemoryBank()
@@ -151,6 +154,11 @@ def agent_loop():
     code_executor = StatefulLanguageModelProgramExecutor(vars={"ask": ask})
     client = OpenAI()
     robot = Robot('192.168.1.222')
+    robot.start_grasp()
+    robot.stop_grasp()
+    robot.move_to([0.4, 0, 0.4], orientation=vector2quat(claw=[0, 0, -1], right=[0, -1, 0]))
+
+    input("> Robot has been reset. >")
 
     # Wait for calibration
     has_pcd = False
@@ -181,27 +189,58 @@ def agent_loop():
     # plt.show()
 
     # event_stream.write(VisualPerceptionEvent(scene))
-    event_stream.write(VerbalFeedbackEvent("give me a candy without peanuts"))
+    event_stream.write(VerbalFeedbackEvent("please put the orange block in one of the cups"))
+
+    rgbs, pcds = rgbd.capture()
+    imgs = [PIL.Image.fromarray(rgb) for rgb in rgbs]
+    scene = Scene(imgs, pcds, agent_state)
+    event_stream.write(VisualPerceptionEvent(scene.imgs, scene.pcds))
     
-    for i in range(2):
-        rgbs, pcds = rgbd.capture()
-        imgs = [PIL.Image.fromarray(rgb) for rgb in rgbs]
-        scene = Scene(imgs, pcds, agent_state)
-        event_stream.write(VisualPerceptionEvent(scene.imgs, scene.pcds))
+    try:
+        for i in range(2):
+            context = create_primary_context(event_stream)
+            rationale, code, raw_content = reason_and_generate_code(context, client)
+            event_stream.write(CodeActionEvent(rationale, code, raw_content))
 
-        context = create_primary_context(event_stream)
-        rationale, code, raw_content = reason_and_generate_code(context, client)
-        event_stream.write(CodeActionEvent(rationale, code, raw_content))
+            print("Reasoning and code generation:")
+            print(raw_content)
 
-        print("Reasoning and code generation:")
-        print(raw_content)
+            if code is not None:
+                code_executor.update(scene=scene, robot=robot)
+                status, output = code_executor.execute(code)
+                if not status:
+                    print(f"Error: {output}")
+                    event_stream.write(ExceptionEvent("CodeExecutionError", output)) # type: ignore
 
-        if code is not None:
-            code_executor.update(scene=scene, robot=robot)
-            status, output = code_executor.execute(code)
-            if not status:
-                print(f"Error: {output}")
-                event_stream.write(ExceptionEvent("CodeExecutionError", output)) # type: ignore
+            # Add new item to visual memory.
+            # Ask the robot to compare / contrast the images.
+            rgbs, pcds = rgbd.capture()
+            imgs = [PIL.Image.fromarray(rgb) for rgb in rgbs]
+            scene = Scene(imgs, pcds, agent_state)
+            event_stream.write(VisualPerceptionEvent(scene.imgs, scene.pcds))
+
+            # Ask agent to reflect on the past two timesteps.
+            ctx = create_vision_model_context(event_stream, max_vision_events_to_include=2)
+            ctx.append({
+                "role": "system",
+                "content": "Reflect on your most recent action. What happened between the last two observations? Write a list of the changes that occurred, and then summarize the changes."
+            })
+            # Now, we reflect on the difference between the previous and current action.
+            cmpl = client.chat.completions.create(model='gpt-4-vision-preview', messages=ctx)
+            reflection = cmpl.choices[0].message.content
+            print("Reflection:")
+            print(reflection)
+            event_stream.write(ReflectionEvent(reflection))
+
+    except Exception as e:
+        print("Error:", e)
+    finally:
+        # Save the event stream
+        i = 0
+        while os.path.exists(f"event_stream_{i}.pkl"):
+            i += 1
+        with open(f"event_stream_{i}.pkl", "wb") as f:
+            pickle.dump(event_stream, f)
 
 if __name__ == '__main__':
     agent_loop()

@@ -52,7 +52,9 @@ class RGBD:
             [1, +1/2, 0],
             [0, +1/2, 0],
             [0, -1/2, 0],
-        ]).astype(np.float32) * 0.1778
+        ]).astype(np.float32)
+        apriltag_object_points[:, 0] += 1
+        apriltag_object_points *= 0.1778
         apriltag_object_points[: 0] += 0.025
         self.apriltag_object_points = apriltag_object_points
 
