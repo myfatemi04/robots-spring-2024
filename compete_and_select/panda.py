@@ -62,13 +62,31 @@ class Panda:
             quat = torch.tensor(quat).float()
             orientation = (Rotation.from_quat(quat.detach().cpu().numpy()) * self.rotation_bias).as_quat()
 
-        self.robot.move_to_ee_pose(pos + self.movement_bias, orientation, time_to_go=self.time_to_go, **kwargs)
+        (curr_x, curr_y, curr_z), curr_quat = self.robot.get_ee_pose()
+        (des_x, des_y, des_z) = pos
+
+        if des_z > curr_z:
+            # if z moves up, then move by z and then by x,y
+            self.robot.move_to_ee_pose(torch.tensor([0, 0, des_z - curr_z]), delta=True, time_to_go=self.time_to_go, **kwargs)
+            self.robot.move_to_ee_pose(pos + self.movement_bias, orientation, time_to_go=self.time_to_go, **kwargs)
+        else:
+            # z moves down; move by x, y and then by z
+            self.robot.move_to_ee_pose(torch.tensor([des_x - curr_x, des_y - curr_y, 0]), delta=True, time_to_go=self.time_to_go, **kwargs)
+            self.robot.move_to_ee_pose(pos + self.movement_bias, orientation, time_to_go=self.time_to_go, **kwargs)
         
     def move_by(self, pos, **kwargs):
         if self.mock: return
 
         pos = torch.tensor(pos).float()
-        self.robot.move_to_ee_pose(pos, delta=True, time_to_go=self.time_to_go, **kwargs)
+
+        if pos[2] > 0:
+            # if z moves up, then move by z and then by x,y
+            self.robot.move_to_ee_pose(torch.tensor([0, 0, pos[2]]), delta=True, time_to_go=self.time_to_go, **kwargs)
+            self.robot.move_to_ee_pose(torch.tensor([pos[0], pos[1], 0]), delta=True, time_to_go=self.time_to_go, **kwargs)
+        else:
+            # z moves down; move by x, y and then by z
+            self.robot.move_to_ee_pose(torch.tensor([pos[0], pos[1], 0]), delta=True, time_to_go=self.time_to_go, **kwargs) 
+            self.robot.move_to_ee_pose(torch.tensor([0, 0, pos[2]]), delta=True, time_to_go=self.time_to_go, **kwargs)
 
     def rotate_to(self, quat, **kwargs):
         if self.mock: return

@@ -197,7 +197,7 @@ def agent_loop():
     event_stream.write(VisualPerceptionEvent(scene.imgs, scene.pcds))
     
     try:
-        for i in range(2):
+        for i in range(5):
             context = create_primary_context(event_stream)
             rationale, code, raw_content = reason_and_generate_code(context, client)
             event_stream.write(CodeActionEvent(rationale, code, raw_content))
