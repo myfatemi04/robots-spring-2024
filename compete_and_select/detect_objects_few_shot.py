@@ -234,27 +234,34 @@ def visualize_highlight(image: ImageObservation, grid_match_score):
     plt.show()
 
 def boxes_to_masks(image: PIL.Image.Image, input_boxes: List[Tuple[int, int, int, int]]):
-    inputs = sam_processor(images=[image], input_boxes=[[list(box) for box in input_boxes]], return_tensors="pt").to(device)
-    outputs = sam_model(**inputs)
-    masks = sam_processor.image_processor.post_process_masks( # type: ignore
-        outputs.pred_masks.cpu(),
-        inputs["original_sizes"].cpu(),      # type: ignore
-        inputs["reshaped_input_sizes"].cpu() # type: ignore
-    )[0] # 0 to remove batch dimension
-    return [mask[0].detach().cpu().numpy().astype(float) for mask in masks]
+    with torch.no_grad():
+        inputs = sam_processor(images=[image], input_boxes=[[list(box) for box in input_boxes]], return_tensors="pt").to(device)
+        outputs = sam_model(**inputs)
+        masks = sam_processor.image_processor.post_process_masks( # type: ignore
+            outputs.pred_masks.cpu(),
+            inputs["original_sizes"].cpu(),      # type: ignore
+            inputs["reshaped_input_sizes"].cpu() # type: ignore
+        )[0] # 0 to remove batch dimension
+        return [mask[0].detach().cpu().numpy().astype(float) for mask in masks]
 
 def points_to_masks(image: PIL.Image.Image, points: List[Tuple[int, int]]):
-    inputs = sam_processor(images=[image], input_points=[[[list(pt)] for pt in points]], return_tensors="pt").to(device)
-    outputs = sam_model(**inputs)
-    masks = sam_processor.image_processor.post_process_masks( # type: ignore
-        outputs.pred_masks.cpu(),
-        inputs["original_sizes"].cpu(),      # type: ignore
-        inputs["reshaped_input_sizes"].cpu() # type: ignore
-    )[0] # 0 to remove batch dimension
+    masks = []
+    with torch.no_grad():
+        i = 0
+        while i < len(points):
+            inputs = sam_processor(images=[image], input_points=[[[list(pt)] for pt in points[i:i + 1]]], return_tensors="pt").to(device)
+            outputs = sam_model(**inputs)
+            masks.extend([m[0].detach().cpu().numpy().astype(bool) for m in sam_processor.image_processor.post_process_masks( # type: ignore
+                outputs.pred_masks.cpu(),
+                inputs["original_sizes"].cpu(),      # type: ignore
+                inputs["reshaped_input_sizes"].cpu() # type: ignore
+            )[0]]) # 0 to remove image batch dimension
+            i += 1
     # print(masks)
     # print(masks[0].shape)
     # print(len(masks))
-    return [mask[0].detach().cpu().numpy().astype(bool) for mask in masks]
+    # return [mask[0].detach().cpu().numpy().astype(bool) for mask in masks]
+    return masks
 
 def sample_from_mask(mask, min_dist=250, n_skip=25):
     coordinates = np.stack(np.where(mask)[::-1], axis=-1)[::n_skip]

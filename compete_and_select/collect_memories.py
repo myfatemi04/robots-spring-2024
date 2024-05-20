@@ -1,11 +1,15 @@
+import json
 import os
-from matplotlib import pyplot as plt
-import numpy as np
-from detect_objects_few_shot import select_bounding_box, ImageObservation, boxes_to_masks
+
 import detect_objects_few_shot as D
+import numpy as np
 import PIL.Image
 import PIL.ImageFilter
-import json
+import torch
+from detect_objects_few_shot import (ImageObservation, boxes_to_masks,
+                                     select_bounding_box)
+from matplotlib import pyplot as plt
+
 
 # Store memories to disk.
 def collect_memories_for_image(img):
@@ -77,15 +81,23 @@ def load_memories(folder):
     new_img, _= fix_size(new_img, [])
     new_img_O = ImageObservation(new_img)
 
+    groups = [
+        {'description': 'candy', 'bboxes': [groups[i]['bboxes'][0] for i in range(len(groups))]}
+    ]
+
     for group in groups:
         masks = boxes_to_masks(img, group['bboxes'])
         combined_mask = np.sum(masks, axis=0) > 0
+        # os.system("nvidia-smi")
 
         plt.imshow(img)
         plt.imshow(combined_mask, alpha=combined_mask.astype(float))
         plt.show()
+        # os.system("nvidia-smi")
 
         svc = D.compile_memories([img_O, img_blurred_O], [combined_mask, combined_mask])
+
+        # os.system("nvidia-smi")
         
         # now, we have a new image (for example)
         highlight = D.highlight(new_img_O, svc)
@@ -97,6 +109,8 @@ def load_memories(folder):
         plt.imshow(new_img)
         plt.imshow(highlight, alpha=highlight)
         plt.show()
+        
+        torch.cuda.empty_cache()
 
         kept_masks = D.create_masks_from_highlight(highlight, new_img_O.image)
         

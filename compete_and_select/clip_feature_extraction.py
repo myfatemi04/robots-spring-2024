@@ -121,30 +121,31 @@ def embed_interpolated(clip_vision_model: CLIPVisionModel, x: torch.Tensor):
     return x
 
 def get_clip_embeddings(image: PIL.Image.Image):
-    x = clip_processor(
-        images=image,
-        return_tensors='pt',
-        output_hidden_states=True,
-        do_center_crop=False,
-        do_resize=False
-    ).pixel_values.to(device)
-    x = embed_interpolated(clip_vision_model, x)
-    x = clip_vision_model.vision_model.pre_layrnorm(x)
-    result = clip_vision_model.vision_model.encoder(x, output_hidden_states=True)
+    with torch.no_grad():
+        x = clip_processor(
+            images=image,
+            return_tensors='pt',
+            output_hidden_states=True,
+            do_center_crop=False,
+            do_resize=False
+        ).pixel_values.to(device)
+        x = embed_interpolated(clip_vision_model, x)
+        x = clip_vision_model.vision_model.pre_layrnorm(x)
+        result = clip_vision_model.vision_model.encoder(x, output_hidden_states=True)
 
-    h0 = image.height // 14
-    w0 = image.width // 14
+        h0 = image.height // 14
+        w0 = image.width // 14
 
-    embedding_map_ = result.hidden_states[-2][0, 1:, :].view(h0, w0, -1)
-    # apply value projection, following MaskCLIP parameterization trick.
-    last_enc: CLIPEncoderLayer = clip_vision_model.vision_model.encoder.layers[-1] # type: ignore
-    last_attn: CLIPAttention = clip_vision_model.vision_model.encoder.layers[-1].self_attn
-    embedding_map_ = last_enc.layer_norm1(embedding_map_)
-    embedding_map_ = last_attn.v_proj(embedding_map_)
-    embedding_map_ = last_attn.out_proj(embedding_map_)
-    embedding_map_ = clip_vision_model.vision_model.post_layernorm(embedding_map_)
-    embedding_map_ = clip_vision_model.visual_projection(embedding_map_)
-    return (result.last_hidden_state[0, 0, :], embedding_map_.detach().cpu().numpy())
+        embedding_map_ = result.hidden_states[-2][0, 1:, :].view(h0, w0, -1)
+        # apply value projection, following MaskCLIP parameterization trick.
+        last_enc: CLIPEncoderLayer = clip_vision_model.vision_model.encoder.layers[-1] # type: ignore
+        last_attn: CLIPAttention = clip_vision_model.vision_model.encoder.layers[-1].self_attn
+        embedding_map_ = last_enc.layer_norm1(embedding_map_)
+        embedding_map_ = last_attn.v_proj(embedding_map_)
+        embedding_map_ = last_attn.out_proj(embedding_map_)
+        embedding_map_ = clip_vision_model.vision_model.post_layernorm(embedding_map_)
+        embedding_map_ = clip_vision_model.visual_projection(embedding_map_)
+    return (result.last_hidden_state[0, 0, :].detach().cpu().numpy(), embedding_map_.detach().cpu().numpy())
 
 def get_clip_embeddings_dense_hops(image: PIL.Image.Image):
     # Encode the image using a hop length of 1/2 the CLIP input size.

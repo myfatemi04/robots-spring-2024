@@ -12,10 +12,9 @@ from lmp_scene_api import Robot, Scene
 from rgbd import RGBD
 from rotation_utils import vector2quat
 from transformers import SamModel, SamProcessor
+from sam import sam_model as model, sam_processor as processor
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = SamModel.from_pretrained("facebook/sam-vit-base").to(device)
-processor = SamProcessor.from_pretrained("facebook/sam-vit-base")
 
 def main():
     robot = Robot()

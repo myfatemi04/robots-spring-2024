@@ -14,10 +14,9 @@ from panda import Panda
 from rgbd import RGBD
 from scipy.spatial.transform import Rotation
 from transformers import SamModel, SamProcessor
+from sam import sam_model as model, sam_processor as processor
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model: SamModel = SamModel.from_pretrained("facebook/sam-vit-base").to(device) # type: ignore
-processor: SamProcessor = SamProcessor.from_pretrained("facebook/sam-vit-base") # type: ignore
 
 def vector2quat(claw, right):
     claw = claw / np.linalg.norm(claw)
