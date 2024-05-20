@@ -8,12 +8,25 @@ import openai
 import PIL.Image
 import PIL.ImageFilter
 import torch
-from detect_objects import get_clip_embeddings
+from clip_feature_extraction import get_clip_embeddings
 from matplotlib.widgets import RectangleSelector
 from sam import sam_model, sam_processor
 from sklearn.svm import SVC
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+@dataclass
+class ImageObservation:
+    image: PIL.Image.Image
+    @cached_property
+    def embeddings(self):
+        return get_clip_embeddings(self.image)
+    @property
+    def embedding(self):
+        return self.embeddings[0]
+    @property
+    def embedding_map(self):
+        return self.embeddings[1]
 
 def select_bounding_box(image):
     plt.rcParams['figure.figsize'] = (20, 10)
@@ -97,7 +110,7 @@ def teach_robot():
     image = PIL.Image.open("sample_images/IMG_8651.jpeg")
     embed_grid = get_clip_embeddings(image)[1]
 
-    grid_match_score = svm.predict_proba(embed_grid.reshape(-1, 1024))[:, 1].reshape(16, 16)
+    grid_match_score = svm.predict_proba(embed_grid.reshape(-1, embed_grid.shape[-1]))[:, 1].reshape(embed_grid.shape[0], embed_grid.shape[1])
 
     print(grid_match_score)
 
@@ -118,19 +131,6 @@ def teach_robot():
 def in_box(box, x, y):
     return (box[0] <= x <= box[2]) and (box[1] <= y <= box[3])
 
-@dataclass
-class ImageObservation:
-    image: PIL.Image.Image
-    @cached_property
-    def embeddings(self):
-        return get_clip_embeddings(self.image)
-    @property
-    def embedding(self):
-        return self.embeddings[0]
-    @property
-    def embedding_map(self):
-        return self.embeddings[1]
-
 def get_embeddings_in_positive_boxes(obs: ImageObservation, positive_boxes):
     positive_embeddings = []
     negative_embeddings = []
@@ -147,30 +147,37 @@ def get_embeddings_in_positive_boxes(obs: ImageObservation, positive_boxes):
 
 MIN_OCCUPANCY = 0.1
 
-def get_include_mask(obs: ImageObservation, mask: np.ndarray):
-    include_mask = np.zeros((16, 16), dtype=bool)
-    for row in range(16):
-        for col in range(16):
-            start_x = int(col * 14 * (obs.image.width / 224))
-            start_y = int(row * 14 * (obs.image.height / 224))
-            end_x = int((col + 1) * 14 * (obs.image.width / 224))
-            end_y = int((row + 1) * 14 * (obs.image.height / 224))
-            mask_occupancy = np.mean(mask[start_y:end_y, start_x:end_x])
+# use get_embeddings_under_mask instead
+# def get_include_mask(obs: ImageObservation, mask: np.ndarray):
+#     include_mask = np.zeros((16, 16), dtype=bool)
 
-            if mask_occupancy > MIN_OCCUPANCY:
-                include_mask[row, col] = True
-    return include_mask
+#     for row in range(obs.embedding_map.shape[0]):
+#         for col in range(obs.embedding_map.shape[1]):
+#             token_width = 14 # or 14 * (obs.image.width / 224)
+#             token_height = 14 # or 14 * (obs.image.height / 224)
+#             start_x = int(col * token_width)
+#             start_y = int(row * token_height)
+#             end_x = int((col + 1) * token_width)
+#             end_y = int((row + 1) * token_height)
+#             mask_occupancy = np.mean(mask[start_y:end_y, start_x:end_x])
+
+#             if mask_occupancy > MIN_OCCUPANCY:
+#                 include_mask[row, col] = True
+    
+#     return include_mask
 
 def get_embeddings_under_mask(obs: ImageObservation, mask: np.ndarray):
     positive_embeddings = []
     negative_embeddings = []
 
-    for row in range(16):
-        for col in range(16):
-            start_x = int(col * 14 * (obs.image.width / 224))
-            start_y = int(row * 14 * (obs.image.height / 224))
-            end_x = int((col + 1) * 14 * (obs.image.width / 224))
-            end_y = int((row + 1) * 14 * (obs.image.height / 224))
+    for row in range(obs.embedding_map.shape[0]):
+        for col in range(obs.embedding_map.shape[1]):
+            token_width = 14 # or 14 * (obs.image.width / 224)
+            token_height = 14 # or 14 * (obs.image.height / 224)
+            start_x = int(col * token_width)
+            start_y = int(row * token_height)
+            end_x = int((col + 1) * token_width)
+            end_y = int((row + 1) * token_height)
             mask_occupancy = np.mean(mask[start_y:end_y, start_x:end_x])
 
             target_list = positive_embeddings if mask_occupancy > MIN_OCCUPANCY else negative_embeddings
@@ -195,18 +202,16 @@ def compile_memories_with_boxes(images: List[ImageObservation], positive_boxes_p
 
     return svm
 
-def compile_memories(images: List[ImageObservation], masks_per_image):
+def compile_memories(images: List[ImageObservation], mask_per_image):
     positive_embeddings = []
     negative_embeddings = []
 
-    for obs, mask in zip(images, masks_per_image):
+    for obs, mask in zip(images, mask_per_image):
         pos, neg = get_embeddings_under_mask(obs, mask)
         positive_embeddings.extend(pos)
         negative_embeddings.extend(neg)
 
-    print(len(positive_embeddings), len(negative_embeddings))
-
-    embeds = np.stack(positive_embeddings + negative_embeddings)
+    embeds = np.array(positive_embeddings + negative_embeddings)
     class_labels = [1]*len(positive_embeddings) + [0]*len(negative_embeddings)
     svm = SVC(probability=True)
     svm = svm.fit(embeds, class_labels)
@@ -215,7 +220,7 @@ def compile_memories(images: List[ImageObservation], masks_per_image):
 
 def highlight(image: ImageObservation, svm: SVC):
     embed_grid = image.embedding_map
-    grid_match_score = svm.predict_proba(embed_grid.reshape(-1, 1024))[:, 1].reshape(16, 16)
+    grid_match_score = svm.predict_proba(embed_grid.reshape(-1, embed_grid.shape[-1]))[:, 1].reshape(embed_grid.shape[0], embed_grid.shape[1])
     return grid_match_score
 
 def visualize_highlight(image: ImageObservation, grid_match_score):
@@ -265,6 +270,78 @@ def sample_from_mask(mask, min_dist=250, n_skip=25):
         kept[i] = min_dist_seen > min_distance
 
     return coordinates[kept]
+
+def create_masks_from_highlight(highlighted, image):
+    # Sample a bunch of spread-out points within this mask.
+    # Uses efficient method that is unbiased and enforces
+    # a minimum distance between points.
+    # Because SAM's mask decoder is so lightweight, we can afford to sample a lot of points.
+    sample_X, sample_Y = sample_from_mask(highlighted > 0.5, min_dist=10).T
+
+    import time
+    start = time.time()
+
+    # Get masks at these points.
+    masks = points_to_masks(image, [(x, y) for x, y in zip(sample_X, sample_Y)])
+
+    plt.title("Original masks")
+    plt.imshow(image)
+    for mask in masks:
+        plt.imshow(mask, alpha=mask.astype(np.float32))
+        plt.plot(sample_X, sample_Y, 'ro', markersize=2)
+    plt.axis('off')
+    plt.show()
+
+    # Score each mask according to the food item indicator function
+    # This will remove masks with low IoU (e.g. points that were slightly at the border of objects)
+    scores = [highlighted[mask > 0.5].mean() for mask in masks]
+    kept_masks = [mask for mask, score in zip(masks, scores) if score > 0.75]
+    
+    print("Scores:", scores)
+    t1 = time.time()
+
+    print("masks w/ good score:", len(kept_masks))
+
+    plt.title("1x Filtered Masks")
+    plt.imshow(image)
+    for mask in kept_masks:
+        plt.imshow(mask, alpha=mask.astype(np.float32))
+    plt.axis('off')
+    plt.show()
+
+    # Calculate IoU between masks
+    ious = np.zeros((len(kept_masks), len(kept_masks)))
+    for i, mask1 in enumerate(kept_masks):
+        for j, mask2 in enumerate(kept_masks):
+            ious[i, j] = (mask1 & mask2).sum() / (mask1 | mask2).sum()
+
+    # Remove mask indexes which overlap substantially with other masks
+    # Prefer the lower-indexed mask
+    kept_indices = np.ones(len(kept_masks), dtype=bool)
+    for i in range(len(kept_masks)):
+        for j in range(i + 1, len(kept_masks)):
+            if ious[i, j] > 0.5:
+                kept_indices[i] = False
+                break
+            
+    kept_masks = [mask for mask, keep in zip(kept_masks, kept_indices) if keep]
+
+    t2 = time.time()
+
+    print("points -> masks:", t1 - start)
+    print("mask iou:", t2 - t1)
+
+    # Plot the kept masks
+    print("Number of masks:", len(kept_masks))
+
+    plt.title("2x Filtered Masks")
+    plt.imshow(image)
+    for mask in kept_masks:
+        plt.imshow(mask, alpha=mask.astype(np.float32))
+    plt.axis('off')
+    plt.show()
+
+    return kept_masks
 
 # we now create an artificial narration for the robot to learn from
 def artificial_narration():

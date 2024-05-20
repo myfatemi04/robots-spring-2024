@@ -1,10 +1,11 @@
-import PIL.Image
-from matplotlib import pyplot as plt
 import numpy as np
+import PIL.Image
 import torch
-from transformers import (CLIPAttention, CLIPEncoderLayer, CLIPProcessor,
-                          CLIPTextModelWithProjection, CLIPVisionModel,
-                          CLIPVisionModelWithProjection)
+from matplotlib import pyplot as plt
+from transformers import CLIPProcessor
+from transformers.models.clip.modeling_clip import (
+    CLIPAttention, CLIPEncoderLayer, CLIPTextModelWithProjection,
+    CLIPVisionModel, CLIPVisionModelWithProjection)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -12,7 +13,7 @@ clip_vision_model: CLIPVisionModelWithProjection = CLIPVisionModelWithProjection
 clip_text_model: CLIPTextModelWithProjection = CLIPTextModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").to(device) # type: ignore
 clip_processor: CLIPProcessor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14") # type: ignore
 
-def get_clip_embeddings(image: PIL.Image.Image, return_np=True):
+def get_clip_embeddings___old(image: PIL.Image.Image, return_np=True):
     result = clip_vision_model(
         **clip_processor(images=image, return_tensors='pt').to(device).pixel_values
     )
@@ -119,8 +120,14 @@ def embed_interpolated(clip_vision_model: CLIPVisionModel, x: torch.Tensor):
 
     return x
 
-def get_clip_embeddings_dense_interpolated(image: PIL.Image.Image):
-    x = clip_processor(images=image, return_tensors='pt', output_hidden_states=True, do_center_crop=False).pixel_values.to(device)
+def get_clip_embeddings(image: PIL.Image.Image):
+    x = clip_processor(
+        images=image,
+        return_tensors='pt',
+        output_hidden_states=True,
+        do_center_crop=False,
+        do_resize=False
+    ).pixel_values.to(device)
     x = embed_interpolated(clip_vision_model, x)
     x = clip_vision_model.vision_model.pre_layrnorm(x)
     result = clip_vision_model.vision_model.encoder(x, output_hidden_states=True)
@@ -137,7 +144,7 @@ def get_clip_embeddings_dense_interpolated(image: PIL.Image.Image):
     embedding_map_ = last_attn.out_proj(embedding_map_)
     embedding_map_ = clip_vision_model.vision_model.post_layernorm(embedding_map_)
     embedding_map_ = clip_vision_model.visual_projection(embedding_map_)
-    return embedding_map_.detach().cpu().numpy()
+    return (result.last_hidden_state[0, 0, :], embedding_map_.detach().cpu().numpy())
 
 def get_clip_embeddings_dense_hops(image: PIL.Image.Image):
     # Encode the image using a hop length of 1/2 the CLIP input size.
@@ -192,7 +199,7 @@ def test():
     text_embedding = clip_text_model(**clip_processor(text="a photo of headphones", return_tensors='pt').to(device)).text_embeds[0, :].detach().cpu().numpy()
     # text_embedding = clip_text_model(**clip_processor(text="a photo of headphones", return_tensors='pt')).text_embeds[0, :].detach().cpu().numpy()
 
-    dense_embeddings = get_clip_embeddings_dense_interpolated(image)
+    dense_embeddings = get_clip_embeddings(image)
     torch.save(dense_embeddings, "dense_embed.pt")
     # dense_embeddings = torch.load("dense_embed.pt")
 
