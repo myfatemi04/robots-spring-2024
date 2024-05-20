@@ -262,6 +262,9 @@ def sample_from_mask(mask, min_dist=250, n_skip=25):
     kept = np.zeros(len(coordinates), dtype=bool)
 
     # avoid the if statement
+    if len(coordinates) == 0:
+        return np.zeros((0, 2))
+    
     kept[permutation[0]] = True
 
     min_distance = min_dist
@@ -276,7 +279,7 @@ def create_masks_from_highlight(highlighted, image):
     # Uses efficient method that is unbiased and enforces
     # a minimum distance between points.
     # Because SAM's mask decoder is so lightweight, we can afford to sample a lot of points.
-    sample_X, sample_Y = sample_from_mask(highlighted > 0.5, min_dist=10).T
+    sample_X, sample_Y = sample_from_mask(highlighted > 0.5, min_dist=16).T
 
     import time
     start = time.time()
