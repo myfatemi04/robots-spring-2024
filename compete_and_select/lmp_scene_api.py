@@ -185,8 +185,7 @@ class Scene:
         selected_object_id = np.argmax(logits)
 
         detection = detections[selected_object_id]
-        box = detection['box']
-        x1, y1, x2, y2 = box['xmin'], box['ymin'], box['xmax'], box['ymax']
+        x1, y1, x2, y2 = detection.box
         segmented_pcd_xyz, segmented_pcd_color, _segmentation_masks = \
             pcd_segmenter.segment(self.imgs[0], self.pcds[0], [x1, y1, x2, y2], self.imgs[1:], self.pcds[1:])
         
@@ -555,8 +554,28 @@ class Robot(Panda):
         self.start_grasp()
         self.grasping = True
 
+        # Here, we should check if the current plan needs to be updated.
+
     def release(self):
         if not self.grasping:
             print("Calling `robot.release()` when not in a grasping state")
         self.grasping = False
         self.stop_grasp()
+
+        # Here, we should check if the current plan needs to be updated.
+        # Lots of vision models currently have too many hallucinations though...
+        # I guess some of the point of my work is to make them more robust to hallucinations,
+        # via online learning.
+
+        # Also could consider hierarchical policies for storing memories. Or really just
+        # the general ability to label recent trajectories with meaningful information.
+        # For example, "we should remember that we placed [X] in object1".
+
+        # Then maybe if we want to ask a robot "what's in [X] item" or "what uses are there for [Y] item",
+        # the robot will recognize the item and be able to share the related information.
+
+        # What triggers a memory to be stored?
+        #  - Verbal feedback from humans
+        #  - Successful action completion
+        #  - Unsuccessful actions
+        # The LLM can retroactively label objects.

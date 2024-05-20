@@ -5,7 +5,7 @@ from typing import Any, List, Optional
 import numpy as np
 import PIL.Image
 from detect_objects import Detection
-from lmp_scene_api import Object
+from lmp_scene_api_object import Object
 
 
 class EventType(Enum):

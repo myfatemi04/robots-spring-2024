@@ -181,7 +181,7 @@ def agent_loop():
     # plt.show()
 
     # event_stream.write(VisualPerceptionEvent(scene))
-    event_stream.write(VerbalFeedbackEvent("Please pick up the Oculus controller."))
+    event_stream.write(VerbalFeedbackEvent("give me a candy without peanuts"))
     
     for i in range(2):
         rgbs, pcds = rgbd.capture()
