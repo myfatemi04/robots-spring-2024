@@ -26,8 +26,6 @@ from vlms import image_message
 
 pcd_segmenter = segment_point_cloud.SamPointCloudSegmenter(render_2d_results=False)
 
-
-
 def create_get_selection_policy_context(agent_state: AgentState, detections: List[Detection], retrievals: List[List[Retrieval]], annotated_image):
     last_vision_event = [i for i, event in enumerate(agent_state.event_stream.events) if isinstance(event, VisualPerceptionEvent)][-1]
     context = []
@@ -88,7 +86,8 @@ Choices:
 2: neutral
 3: unlikely
 
-Answer as if you are controlling a hypothetical robot.
+Answer as if you are controlling a hypothetical robot. Assume that object detections have been
+filtered to be in the reachable zone of the robot.
 """
             context.append({
                 'role': 'system',
@@ -163,10 +162,28 @@ class Scene:
     def choose(self, object_type, purpose):
         self.agent_state.event_stream.write(ObjectSelectionInitiation(object_type, purpose))
 
-        detections = detect_objects_2d(self.imgs[0], object_type)
+        objects = []
+        detections = []
+        # For each of these detections, verify whether they fall in the reachable zone of the robot.
+        for detection in detect_objects_2d(self.imgs[0], object_type):
+            x1, y1, x2, y2 = detection.box
+            segmented_pcd_xyz, segmented_pcd_color, _segmentation_masks = \
+                pcd_segmenter.segment(self.imgs[0], self.pcds[0], [x1, y1, x2, y2], self.imgs[1:], self.pcds[1:])
+            object = Object(segmented_pcd_xyz, segmented_pcd_color, clip_features=None)
+            if len(segmented_pcd_xyz) == 0:
+                print("Object is out of reach")
+                continue
+            # Verify that object is in reachable zone.
+            x, y, z = object.centroid
+            if (0 <= z <= 1) and (x >= 0) and (-1.5 <= y <= 1.5):
+                objects.append(object)
+                detections.append(detection)
+
         print("Number of detections:", len(detections))
 
         self.agent_state.event_stream.write(ObjectSelectionDetectionResult(detections))
+
+        assert len(detections) > 0, "No objects were detected. Maybe try a different object type?"
 
         retrievals = [self.agent_state.memory_bank.retrieve(detection.embedding, threshold=0.5) for detection in detections]
 
@@ -183,13 +200,7 @@ class Scene:
         plt.show()
 
         selected_object_id = np.argmax(logits)
-
-        detection = detections[selected_object_id]
-        x1, y1, x2, y2 = detection.box
-        segmented_pcd_xyz, segmented_pcd_color, _segmentation_masks = \
-            pcd_segmenter.segment(self.imgs[0], self.pcds[0], [x1, y1, x2, y2], self.imgs[1:], self.pcds[1:])
-        
-        selected_object = Object(segmented_pcd_xyz, segmented_pcd_color, clip_features=None)
+        selected_object = objects[selected_object_id]
 
         self.agent_state.event_stream.write(ObjectSelectionPolicySelection(selected_object_id, selected_object))
 
