@@ -17,7 +17,7 @@ clip_processor: CLIPProcessor = CLIPProcessor.from_pretrained("openai/clip-vit-l
 
 def get_clip_embeddings(image: Image.Image, return_np=True):
     result = clip_vision_model(
-        **clip_processor(images=image, return_tensors='pt').to(device)
+        **clip_processor(images=image, return_tensors='pt').to(device).pixel_values
     )
     embedding_pooled = result.last_hidden_state[0, 0, :]
     embedding_map = result.last_hidden_state[0, 1:, :].view(16, 16, -1)
