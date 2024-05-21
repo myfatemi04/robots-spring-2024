@@ -49,6 +49,7 @@ class ReflectionEvent(Event):
 @dataclass
 class VerbalFeedbackEvent(Event):
     text: str
+    prompt: Optional[str] = None
     variables: Optional[dict] = None
 
 @dataclass

@@ -58,10 +58,9 @@ def create_get_selection_policy_context(agent_state: AgentState, detections: Lis
                 'content': event.reflection,
             })
         elif isinstance(event, VerbalFeedbackEvent):
-            context.append({
-                'role': 'user',
-                'content': event.text,
-            })
+            if event.prompt:
+                context.append({'role': 'assistant', 'content': f'{event.prompt}'})
+            context.append({'role': 'user', 'content': f'{event.text}'})
         elif isinstance(event, CodeActionEvent):
             context.append({
                 'role': 'assistant',

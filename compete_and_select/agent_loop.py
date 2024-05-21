@@ -87,10 +87,9 @@ def create_primary_context(event_stream: EventStream, image_observation_overwrit
                 'content': f"Reflection: {event.reflection}"
             })
         elif isinstance(event, VerbalFeedbackEvent):
-            context.append({
-                'role': 'user',
-                'content': f'{event.text}',
-            })
+            if event.prompt:
+                context.append({'role': 'assistant', 'content': f'{event.prompt}'})
+            context.append({'role': 'user', 'content': f'{event.text}'})
         elif isinstance(event, CodeActionEvent):
             context.append({
                 'role': 'assistant',
@@ -126,14 +125,18 @@ def create_vision_model_context(event_stream: EventStream, max_vision_events_to_
                 'content': f"Reflection: {event.reflection}"
             })
         elif isinstance(event, VerbalFeedbackEvent):
-            context.append({
-                'role': 'user',
-                'content': f'{event.text}',
-            })
+            if event.prompt:
+                context.append({'role': 'assistant', 'content': f'{event.prompt}'})
+            context.append({'role': 'user', 'content': f'{event.text}'})
         elif isinstance(event, CodeActionEvent):
             context.append({
                 'role': 'assistant',
                 'content': event.raw_content,
+            })
+        elif isinstance(event, ExceptionEvent):
+            context.append({
+                'role': 'system',
+                'content': f"Error: {event.message}"
             })
     return context
 
@@ -147,7 +150,7 @@ def agent_loop():
 
     def ask(prompt='[Robot called the ask() function without a prompt]:'):
         result = input(prompt)
-        event_stream.write(VerbalFeedbackEvent(result))
+        event_stream.write(VerbalFeedbackEvent(result, prompt=prompt))
         return result
 
     rgbd = RGBD(num_cameras=1)
@@ -188,8 +191,13 @@ def agent_loop():
     # plt.axis('off')
     # plt.show()
 
+    # with open("event_stream_9.pkl", "rb") as f:
+    #     event_stream: EventStream = pickle.load(f)
+    #     agent_state.event_stream = event_stream
+
     # event_stream.write(VisualPerceptionEvent(scene))
-    event_stream.write(VerbalFeedbackEvent("please put the orange block in one of the cups"))
+    event_stream.write(VerbalFeedbackEvent("please put the teddy bear in the cup. try to detect it."))
+    # event_stream.write(VerbalFeedbackEvent("please put the orange block in one of the cups"))
 
     rgbs, pcds = rgbd.capture()
     imgs = [PIL.Image.fromarray(rgb) for rgb in rgbs]
