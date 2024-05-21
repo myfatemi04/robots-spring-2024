@@ -143,6 +143,7 @@ def create_vision_model_context(event_stream: EventStream, max_vision_events_to_
 def agent_loop():
     from lmp_scene_api import Robot
     from rgbd import RGBD
+    from rgbd_asynchronous_tracker import RGBDAsynchronousTracker
 
     event_stream = EventStream()
     memory_bank = MemoryBank()
@@ -154,6 +155,11 @@ def agent_loop():
         return result
 
     rgbd = RGBD(num_cameras=1)
+    # allows frames to be tracked even when work is being done on the main thread.
+    # this should increase the quality of object tracking.
+    # tckr = RGBDAsynchronousTracker(rgbd)
+    # tckr.open()
+
     code_executor = StatefulLanguageModelProgramExecutor(vars={"ask": ask})
     client = OpenAI()
     robot = Robot('192.168.1.222')
@@ -166,37 +172,17 @@ def agent_loop():
     # Wait for calibration
     has_pcd = False
     while not has_pcd:
-        (rgbs, pcds) = rgbd.capture()
+        # uses a threading.Event to wait for next frame
+        # (rgbs, pcds, _) = tckr.next()
+        # calibrated = tckr.rgbd.try_calibrate(0, rgbs[0]) # this needs to be done in the main thread
+        rgbs, pcds = rgbd.capture()
+        # print("Calibrated:", calibrated)
         has_pcd = pcds[0] is not None
         plt.title("Camera 0")
         plt.imshow(rgbs[0])
         plt.pause(0.05)
 
-    print(rgbs[0].shape)
-
-    # start_i = 0
-    # if os.path.exists("event_stream.pkl"):
-    #     with open("event_stream.pkl", "rb") as f:
-    #         event_stream = pickle.load(f)
-    #     start_i = sum(1 for evt in event_stream.events if isinstance(evt, VisualPerceptionEvent))
-    #     print(event_stream)
-
-    # Create a custom event stream
-    
-    # scene = Scene([PIL.Image.open("sample_images/IMG_8651.jpeg")], None, agent_state)
-    # detections = detect(scene.imgs[0], "deck of cards")
-    # drawn = draw_set_of_marks(scene.imgs[0], detections)
-    # plt.title('Detections')
-    # plt.imshow(drawn)
-    # plt.axis('off')
-    # plt.show()
-
-    # with open("event_stream_9.pkl", "rb") as f:
-    #     event_stream: EventStream = pickle.load(f)
-    #     agent_state.event_stream = event_stream
-
-    # event_stream.write(VisualPerceptionEvent(scene))
-    event_stream.write(VerbalFeedbackEvent("Please put the blocks in a stack."))
+    event_stream.write(VerbalFeedbackEvent("Please grab the yellow cube."))
     # event_stream.write(VerbalFeedbackEvent("please put the orange block in one of the cups"))
 
     rgbs, pcds = rgbd.capture()
@@ -226,6 +212,22 @@ def agent_loop():
             imgs = [PIL.Image.fromarray(rgb) for rgb in rgbs]
             scene = Scene(imgs, pcds, agent_state)
             event_stream.write(VisualPerceptionEvent(scene.imgs, scene.pcds))
+
+            # Display the new data we received.
+            # Also display tracked objects, and their names.
+            # We will need a notion of an object registry.
+            # Perhaps if an object has not been seen for [X]
+            # amount of frames, we deleted it from the registry.
+            # What other information is needed to introduce object
+            # permanence? What ways are there to introduce object
+            # memories? Maybe we simply enumerate the objects in
+            # the scene and record changes that occur with them.
+            # Surely this capability is useful!
+            plt.title("Camera 0")
+            plt.imshow(rgbs[0])
+            # Plot masks.
+
+            plt.pause(0.05)
 
             # Ask agent to reflect on the past two timesteps.
             ctx = create_vision_model_context(event_stream, max_vision_events_to_include=2)

@@ -63,8 +63,8 @@ class RGBD:
         image_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         try:
             detections = self.apriltag_detector.detect(image_gray)
-        except RuntimeError:
-            print("AprilTag runtime error.", file=sys.stderr)
+        except RuntimeError as e:
+            print("AprilTag runtime error:", e, file=sys.stderr)
             detections = []
         if len(detections) == 1:
             detection = detections[0]

@@ -11,7 +11,6 @@ import sys
 sys.path.append("../../Cutie")
 
 # Note that you may need to install hydra-core to do this.
-
 from cutie.inference.inference_core import InferenceCore
 from cutie.utils.get_default_model import get_default_model
 
