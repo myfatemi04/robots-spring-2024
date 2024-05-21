@@ -3,6 +3,8 @@ from typing import Dict, List, Optional, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
+import torch
+from select_bounding_box import select_bounding_box
 import segment_point_cloud
 from agent_state import AgentState
 from clients import vlm_client
@@ -152,6 +154,13 @@ def get_selection_policy(context: list):
 
     return (reasoning, logits)
 
+def object_from_bounding_box(bounding_box, imgs, pcds):
+    x1, y1, x2, y2 = bounding_box
+    segmented_pcd_xyz, segmented_pcd_color, segmentation_masks = \
+        pcd_segmenter.segment(imgs[0], pcds[0], [x1, y1, x2, y2], imgs[1:], pcds[1:])
+    
+    return Object(segmented_pcd_xyz, segmented_pcd_color, segmentation_masks, clip_features=None)
+
 class Scene:
     def __init__(self, imgs, pcds, agent_state: AgentState):
         self.imgs: List[PIL.Image.Image] = imgs
@@ -161,28 +170,46 @@ class Scene:
     def choose(self, object_type, purpose):
         self.agent_state.event_stream.write(ObjectSelectionInitiation(object_type, purpose))
 
-        objects = []
-        detections = []
+        objects: List[Object] = []
+        detections: List[Detection] = []
+
+        # See if this overlaps with any previously detected objects.
+        if self.agent_state.tracker is not None:
+            tracking_mask = self.agent_state.tracker.prev_object_tracking_mask
+
         # For each of these detections, verify whether they fall in the reachable zone of the robot.
         for detection in detect_objects_2d(self.imgs[0], object_type):
-            x1, y1, x2, y2 = detection.box
-            segmented_pcd_xyz, segmented_pcd_color, _segmentation_masks = \
-                pcd_segmenter.segment(self.imgs[0], self.pcds[0], [x1, y1, x2, y2], self.imgs[1:], self.pcds[1:])
-            object = Object(segmented_pcd_xyz, segmented_pcd_color, clip_features=None)
-            if len(segmented_pcd_xyz) == 0:
+            object = object_from_bounding_box(detection.box, self.imgs, self.pcds)
+            if len(object.point_cloud) == 0:
                 print("Object is out of reach")
                 continue
+
             # Verify that object is in reachable zone.
             x, y, z = object.centroid
             if (0 <= z <= 1) and (x >= 0) and (-1.5 <= y <= 1.5):
                 objects.append(object)
                 detections.append(detection)
+            else:
+                print("Object is out of reach")
+                continue
+
+            # Here, we check and see if this object detection overlaps with any previously detected objects.
+            values_under_mask = tracking_mask[object.segmentation_masks[0] > 0]
+            most_common_value = torch.mode(values_under_mask)
+
+            # Check if this lines up with any object IDs that we have previously created.
+            if most_common_value > 0:
+                proportion = torch.mean(values_under_mask == most_common_value)
+                if proportion > 0.5:
+                    # Decent overlap with a previously used object!
+                    print("Object detection overlaps with a previously detected object!")
+                    print(f"object_id = {most_common_value}")
 
         print("Number of detections:", len(detections))
 
         self.agent_state.event_stream.write(ObjectSelectionDetectionResult(detections))
 
-        assert len(detections) > 0, "No objects were detected. Maybe try a different object type?"
+        assert len(detections) > 0, "No objects were detected. Maybe try a different object type? Alternatively, consider using the human functions to request manual object selection."
 
         retrievals = [self.agent_state.memory_bank.retrieve(detection.embedding, threshold=0.5) for detection in detections]
 
@@ -200,6 +227,11 @@ class Scene:
 
         selected_object_id = np.argmax(logits)
         selected_object = objects[selected_object_id]
+
+        print(
+            "Object selection results in the following virtual object ID:",
+            self.agent_state.tracker.store([detections[selected_object_id].box])
+        )
 
         self.agent_state.event_stream.write(ObjectSelectionPolicySelection(selected_object_id, selected_object))
 
@@ -518,7 +550,13 @@ class Robot(Panda):
 
         if len(grasps) == 0:
             # huhhh
-            print("<warn: no grasps found?>")
+            print("<Warn: Grasping algorithm yielded nothing.>")
+
+            # we can just try to move to the centroid of the object
+            centroid = object.centroid
+            self.move_to(centroid)
+            self.start_grasp()
+
             return
 
         best_grasp = None
@@ -589,3 +627,41 @@ class Robot(Panda):
         #  - Successful action completion
         #  - Unsuccessful actions
         # The LLM can retroactively label objects.
+
+class Human:
+    def __init__(self, agent_state: AgentState):
+        self.agent_state = agent_state
+
+    def ask(self, prompt):
+        value = input(prompt)
+
+        self.agent_state.event_stream.write(
+            VerbalFeedbackEvent(text=value, prompt=prompt)
+        )
+
+        if value.lower() in ['n', 'no', 'cancel']:
+            return False
+        elif value.lower() in ['y', 'yes']:
+            return True
+        else:
+            return value
+        
+    def request_object_selection(self, prompt):
+        ### The agent can call this if the OwlV2 detector doesn't work effectively. ###
+        print(">>> Agent has requested assistance in selecting an object. >>>")
+        print(prompt)
+
+        ### We display an image, along with previously-detected objects. ###
+        vis = self.agent_state.most_recent_visual_observation
+        assert vis is not None, "No visual observations found."
+
+        bbox = select_bounding_box(vis.imgs[0])
+        obj = object_from_bounding_box(bbox, vis.imgs, vis.pcds)
+
+        if self.agent_state.tracker:
+            object_id = self.agent_state.tracker.store([bbox])
+            print("New object ID created:", object_id)
+        
+        # self.agent_state.event_stream.write()
+
+        return obj

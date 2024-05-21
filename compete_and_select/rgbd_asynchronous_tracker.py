@@ -53,7 +53,7 @@ class RGBDAsynchronousTracker:
     def create_joint_mask(self, rgb, bounding_boxes, object_ids):
         # Create instance segmentation-like mask.
         masks = sam.boxes_to_masks(rgb, bounding_boxes)
-        overall_mask = torch.zeros_like(masks[0], device=device)
+        overall_mask = torch.zeros(masks[0].shape, device=device)
         for object_id, mask in zip(object_ids, masks):
             overall_mask[mask != 0] = object_id
 

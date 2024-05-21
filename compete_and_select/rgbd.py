@@ -1,5 +1,6 @@
 import sys
 import cv2
+from matplotlib import pyplot as plt
 
 sys.path.insert(0, "../")
 from camera import Camera
@@ -27,7 +28,7 @@ def _color(capture):
     return np.ascontiguousarray(capture.color[..., :3][..., ::-1])
 
 class RGBD:
-    def __init__(self, num_cameras=None, camera_ids=None):
+    def __init__(self, num_cameras=None, camera_ids=None, auto_calibrate=False):
         """ camera_ids != None => selects specific cameras for capture """
         k4a_device_map = enumerate_cameras(num_cameras or 2)
 
@@ -35,6 +36,7 @@ class RGBD:
             camera_ids = list(k4a_device_map.keys())
 
         self.camera_ids = camera_ids
+        self.auto_calibrate = auto_calibrate
 
         k4as = []
         for camera_id in k4a_device_map.keys():
@@ -61,11 +63,16 @@ class RGBD:
     def try_calibrate(self, camera_index, image):
         camera = self.cameras[camera_index]
         image_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        # image_gray = cv2.equalizeHist(image_gray)
+        # plt.title("Calibration Image")
+        # plt.imshow(image_gray)
+        # plt.show()
         try:
             detections = self.apriltag_detector.detect(image_gray)
         except RuntimeError as e:
             print("AprilTag runtime error:", e, file=sys.stderr)
             detections = []
+        print(detections)
         if len(detections) == 1:
             detection = detections[0]
             apriltag_image_points = detection['lb-rb-rt-lt']
@@ -88,7 +95,7 @@ class RGBD:
             color = _color(captures[i])
             color_images.append(color)
             
-            if camera.extrinsic_matrix is None:
+            if camera.extrinsic_matrix is None and self.auto_calibrate:
                 success = self.try_calibrate(i, color)
                 if success:
                     print("Calibrated camera", self.camera_ids[i])

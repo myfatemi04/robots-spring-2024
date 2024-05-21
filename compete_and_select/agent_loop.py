@@ -41,8 +41,10 @@ Information about which objects should be selected may span several steps.
 
 import os
 import pickle
+from dataclasses import dataclass
 
 import dotenv
+import numpy as np
 from rotation_utils import vector2quat
 
 dotenv.load_dotenv()
@@ -55,7 +57,7 @@ from event_stream import (CodeActionEvent, EventStream, ExceptionEvent,
                           VisualPerceptionEvent)
 from lmp_planner import (StatefulLanguageModelProgramExecutor,
                          reason_and_generate_code)
-from lmp_scene_api import Scene
+from lmp_scene_api import Human, Scene
 from memory_bank_v2 import MemoryBank
 from openai import OpenAI
 from vlms import image_message
@@ -94,6 +96,11 @@ def create_primary_context(event_stream: EventStream, image_observation_overwrit
             context.append({
                 'role': 'assistant',
                 'content': event.raw_content,
+            })
+        elif isinstance(event, ExceptionEvent):
+            context.append({
+                'role': 'system',
+                'content': f"Exception ({event.exception_type}): {event.text}"
             })
     return context
 
@@ -136,9 +143,13 @@ def create_vision_model_context(event_stream: EventStream, max_vision_events_to_
         elif isinstance(event, ExceptionEvent):
             context.append({
                 'role': 'system',
-                'content': f"Error: {event.message}"
+                'content': f"Exception ({event.exception_type}): {event.text}"
             })
     return context
+
+@dataclass
+class Config:
+    use_xmem: bool
 
 def agent_loop():
     from lmp_scene_api import Robot
@@ -147,20 +158,25 @@ def agent_loop():
 
     event_stream = EventStream()
     memory_bank = MemoryBank()
-    agent_state = AgentState(event_stream, memory_bank)
-
-    def ask(prompt='[Robot called the ask() function without a prompt]:'):
-        result = input(prompt)
-        event_stream.write(VerbalFeedbackEvent(result, prompt=prompt))
-        return result
-
-    rgbd = RGBD(num_cameras=1)
+    
+    settings = Config(use_xmem=True)
+    
+    ### Initialize camera capture. ###
+    # Calibration needs to be done in the main thread, so if we use the asynchronous
+    # object tracker, we must disable calibration from being called automatically
+    # during each capture.
+    rgbd = RGBD(num_cameras=1, auto_calibrate=False)
     # allows frames to be tracked even when work is being done on the main thread.
     # this should increase the quality of object tracking.
-    # tckr = RGBDAsynchronousTracker(rgbd)
-    # tckr.open()
+    tracker = RGBDAsynchronousTracker(rgbd)
+    tracker.open()
 
-    code_executor = StatefulLanguageModelProgramExecutor(vars={"ask": ask})
+
+    ### Initialize agent_state. ###
+    agent_state = AgentState(event_stream, memory_bank, tracker)
+    human = Human(agent_state)
+
+    code_executor = StatefulLanguageModelProgramExecutor(vars={"np": np, "human": human})
     client = OpenAI()
     robot = Robot('192.168.1.222')
     robot.start_grasp()
@@ -173,16 +189,16 @@ def agent_loop():
     has_pcd = False
     while not has_pcd:
         # uses a threading.Event to wait for next frame
-        # (rgbs, pcds, _) = tckr.next()
-        # calibrated = tckr.rgbd.try_calibrate(0, rgbs[0]) # this needs to be done in the main thread
-        rgbs, pcds = rgbd.capture()
+        (rgbs, pcds, _) = tracker.next()
+        tracker.rgbd.try_calibrate(0, rgbs[0])
+        # rgbs, pcds = rgbd.capture()
         # print("Calibrated:", calibrated)
         has_pcd = pcds[0] is not None
         plt.title("Camera 0")
         plt.imshow(rgbs[0])
         plt.pause(0.05)
 
-    event_stream.write(VerbalFeedbackEvent("Please grab the yellow cube."))
+    event_stream.write(VerbalFeedbackEvent("Please grab a rice serving spoon."))
     # event_stream.write(VerbalFeedbackEvent("please put the orange block in one of the cups"))
 
     rgbs, pcds = rgbd.capture()
@@ -233,7 +249,10 @@ def agent_loop():
             ctx = create_vision_model_context(event_stream, max_vision_events_to_include=2)
             ctx.append({
                 "role": "system",
-                "content": "Reflect on your most recent action. What happened between the last two observations? Write a list of the changes that occurred, and then summarize the changes."
+                "content":
+                    "Reflect on your most recent action. What happened between the last two observations? "
+                    "Write a list of the changes that occurred, and then summarize the changes. "
+                    "Alternatively, if you encounter an error, consider asking the human to select an object."
             })
             # Now, we reflect on the difference between the previous and current action.
             cmpl = client.chat.completions.create(model='gpt-4-vision-preview', messages=ctx)
@@ -245,6 +264,8 @@ def agent_loop():
     except Exception as e:
         print("Error:", e)
     finally:
+        tracker.close()
+
         # Save the event stream
         i = 0
         while os.path.exists(f"event_stream_{i}.pkl"):

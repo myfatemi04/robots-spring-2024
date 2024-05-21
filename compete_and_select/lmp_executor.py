@@ -16,11 +16,18 @@ class StatefulLanguageModelProgramExecutor:
 
     def check(self, source: str):
         # same checks as those made by voxposer
-        assert 'import' not in source, "Cannot import any new libraries"
-        assert '__' not in source, "Cannot use any special variables"
+        source.replace("import numpy as np", "")
+
+        if 'import' in source:
+            return (False, "Cannot import any libraries beyond numpy")
+        if '__' in source:
+            return (False, "Cannot use any special variables")
+        return (True, None)
     
     def execute(self, source: str) -> Union[Tuple[Literal[True], None], Tuple[Literal[False], str]]:
-        self.check(source)
+        ok, msg = self.check(source)
+        if not ok:
+            return (False, msg)
 
         globals_ = {'exec': None, 'eval': None, 'open': None}
         locals_ = {**self.vars_ptr['vars'], "__vars_ptr": self.vars_ptr}
@@ -36,6 +43,8 @@ __vars_ptr['vars'] = {k: v for (k, v) in locals().items() if '__' not in k}
             return (True, None)
         except Exception as e:
             error_str = traceback.format_exc()
+            print(error_str)
+            print(e)
 
             return (False, error_str)
 

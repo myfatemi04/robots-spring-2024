@@ -2,11 +2,12 @@ from functools import cached_property
 from detect_grasps import detect_grasps
 
 class Object:
-    def __init__(self, point_cloud, colors, clip_features=None):
+    def __init__(self, point_cloud, colors, segmentation_masks, clip_features=None):
         # may just store objects in world frame to avoid having to keep track
         # of rotations and such
         self.point_cloud = point_cloud
         self.colors = colors
+        self.segmentation_masks = segmentation_masks
         self.clip_features = clip_features
 
     @cached_property
