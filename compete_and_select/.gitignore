@@ -3,4 +3,4 @@ GroundingDINO
 .env
 plan_logs
 memories
-
+weights

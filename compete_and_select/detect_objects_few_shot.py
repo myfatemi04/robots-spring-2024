@@ -9,8 +9,8 @@ import PIL.Image
 import PIL.ImageFilter
 import torch
 from clip_feature_extraction import get_clip_embeddings
-from matplotlib.widgets import RectangleSelector
-from sam import sam_model, sam_processor
+from sam import boxes_to_masks, points_to_masks
+from select_bounding_box import select_bounding_box
 from sklearn.svm import SVC
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -27,44 +27,6 @@ class ImageObservation:
     @property
     def embedding_map(self):
         return self.embeddings[1]
-
-def select_bounding_box(image):
-    plt.rcParams['figure.figsize'] = (20, 10)
-
-    def line_select_callback(eclick, erelease):
-        'eclick and erelease are the press and release events'
-        x1, y1 = eclick.xdata, eclick.ydata
-        x2, y2 = erelease.xdata, erelease.ydata
-        # print("(%3.2f, %3.2f) --> (%3.2f, %3.2f)" % (x1, y1, x2, y2))
-        # print(" The button you used were: %s %s" % (eclick.button, erelease.button))
-
-    def toggle_selector(event):
-        # print(' Key pressed.')
-        if event.key in ['Q', 'q'] and toggle_selector.RS.active:
-            # print(' RectangleSelector deactivated.')
-            toggle_selector.RS.set_active(False)
-        if event.key in ['A', 'a'] and not toggle_selector.RS.active:
-            # print(' RectangleSelector activated.')
-            toggle_selector.RS.set_active(True)
-
-
-    fig, current_ax = plt.subplots()
-    # print("\n      click  -->  release")
-
-    # drawtype is 'box' or 'line' or 'none'
-    toggle_selector.RS = RectangleSelector(current_ax, line_select_callback,
-                                        useblit=True,
-                                        button=[1, 3], # type: ignore
-                                        minspanx=5, minspany=5,
-                                        spancoords='pixels',
-                                        interactive=True)
-    plt.connect('key_press_event', toggle_selector)
-    plt.imshow(image)
-    plt.show()
-
-    # get value
-    x1, x2, y1, y2 = toggle_selector.RS.extents
-    return int(x1), int(y1), int(x2), int(y2)
 
 def teach_robot():
     # memory_bank = MemoryBank()
@@ -148,23 +110,25 @@ def get_embeddings_in_positive_boxes(obs: ImageObservation, positive_boxes):
 MIN_OCCUPANCY = 0.1
 
 # use get_embeddings_under_mask instead
-# def get_include_mask(obs: ImageObservation, mask: np.ndarray):
-#     include_mask = np.zeros((16, 16), dtype=bool)
+"""
+def get_include_mask(obs: ImageObservation, mask: np.ndarray):
+    include_mask = np.zeros((16, 16), dtype=bool)
 
-#     for row in range(obs.embedding_map.shape[0]):
-#         for col in range(obs.embedding_map.shape[1]):
-#             token_width = 14 # or 14 * (obs.image.width / 224)
-#             token_height = 14 # or 14 * (obs.image.height / 224)
-#             start_x = int(col * token_width)
-#             start_y = int(row * token_height)
-#             end_x = int((col + 1) * token_width)
-#             end_y = int((row + 1) * token_height)
-#             mask_occupancy = np.mean(mask[start_y:end_y, start_x:end_x])
+    for row in range(obs.embedding_map.shape[0]):
+        for col in range(obs.embedding_map.shape[1]):
+            token_width = 14 # or 14 * (obs.image.width / 224)
+            token_height = 14 # or 14 * (obs.image.height / 224)
+            start_x = int(col * token_width)
+            start_y = int(row * token_height)
+            end_x = int((col + 1) * token_width)
+            end_y = int((row + 1) * token_height)
+            mask_occupancy = np.mean(mask[start_y:end_y, start_x:end_x])
 
-#             if mask_occupancy > MIN_OCCUPANCY:
-#                 include_mask[row, col] = True
+            if mask_occupancy > MIN_OCCUPANCY:
+                include_mask[row, col] = True
     
-#     return include_mask
+    return include_mask
+"""
 
 def get_embeddings_under_mask(obs: ImageObservation, mask: np.ndarray):
     positive_embeddings = []
@@ -232,36 +196,6 @@ def visualize_highlight(image: ImageObservation, grid_match_score):
 
     plt.axis('off')
     plt.show()
-
-def boxes_to_masks(image: PIL.Image.Image, input_boxes: List[Tuple[int, int, int, int]]):
-    with torch.no_grad():
-        inputs = sam_processor(images=[image], input_boxes=[[list(box) for box in input_boxes]], return_tensors="pt").to(device)
-        outputs = sam_model(**inputs)
-        masks = sam_processor.image_processor.post_process_masks( # type: ignore
-            outputs.pred_masks.cpu(),
-            inputs["original_sizes"].cpu(),      # type: ignore
-            inputs["reshaped_input_sizes"].cpu() # type: ignore
-        )[0] # 0 to remove batch dimension
-        return [mask[0].detach().cpu().numpy().astype(float) for mask in masks]
-
-def points_to_masks(image: PIL.Image.Image, points: List[Tuple[int, int]]):
-    masks = []
-    with torch.no_grad():
-        i = 0
-        while i < len(points):
-            inputs = sam_processor(images=[image], input_points=[[[list(pt)] for pt in points[i:i + 1]]], return_tensors="pt").to(device)
-            outputs = sam_model(**inputs)
-            masks.extend([m[0].detach().cpu().numpy().astype(bool) for m in sam_processor.image_processor.post_process_masks( # type: ignore
-                outputs.pred_masks.cpu(),
-                inputs["original_sizes"].cpu(),      # type: ignore
-                inputs["reshaped_input_sizes"].cpu() # type: ignore
-            )[0]]) # 0 to remove image batch dimension
-            i += 1
-    # print(masks)
-    # print(masks[0].shape)
-    # print(len(masks))
-    # return [mask[0].detach().cpu().numpy().astype(bool) for mask in masks]
-    return masks
 
 def sample_from_mask(mask, min_dist=250, n_skip=25):
     coordinates = np.stack(np.where(mask)[::-1], axis=-1)[::n_skip]

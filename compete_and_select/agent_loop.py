@@ -196,7 +196,7 @@ def agent_loop():
     #     agent_state.event_stream = event_stream
 
     # event_stream.write(VisualPerceptionEvent(scene))
-    event_stream.write(VerbalFeedbackEvent("please put the teddy bear in the cup. try to detect it."))
+    event_stream.write(VerbalFeedbackEvent("Please put the blocks in a stack."))
     # event_stream.write(VerbalFeedbackEvent("please put the orange block in one of the cups"))
 
     rgbs, pcds = rgbd.capture()
