@@ -187,7 +187,7 @@ def highlight(image: ImageObservation, svm: SVC):
     grid_match_score = svm.predict_proba(embed_grid.reshape(-1, embed_grid.shape[-1]))[:, 1].reshape(embed_grid.shape[0], embed_grid.shape[1])
     return grid_match_score
 
-def visualize_highlight(image: ImageObservation, grid_match_score):
+def visualize_highlight(image: ImageObservation, grid_match_score, plt_pause=False):
     match_image = PIL.Image.fromarray(np.uint8(grid_match_score * 255)).resize((image.image.width, image.image.height))
     match_image = np.array(match_image) / 255
 
@@ -195,7 +195,10 @@ def visualize_highlight(image: ImageObservation, grid_match_score):
     plt.imshow(match_image, alpha=match_image)
 
     plt.axis('off')
-    plt.show()
+    if plt_pause:
+        plt.pause(plt_pause)
+    else:
+        plt.show()
 
 def sample_from_mask(mask, min_dist=250, n_skip=25):
     coordinates = np.stack(np.where(mask)[::-1], axis=-1)[::n_skip]

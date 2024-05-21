@@ -71,6 +71,7 @@ class RGBDAsynchronousTracker:
                     img = to_tensor(img_pil).cuda().float()
 
                     if len(self.memory_queue) > 0:
+                        print("Non-empty memory queue!")
                         # Ensure that batch-adds form an atomic operation.
                         self.memory_queue_lock.acquire()
                         object_ids, bounding_boxes = zip(*self.memory_queue)

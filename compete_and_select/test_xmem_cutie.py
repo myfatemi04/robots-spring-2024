@@ -1,25 +1,23 @@
-import os
-import time
-from matplotlib import pyplot as plt
-
-import torch
-from torchvision.transforms.functional import to_tensor
-from PIL import Image
-import numpy as np
-
 import sys
-sys.path.append("../../Cutie")
+import time
 
+import detect_objects_few_shot as D
+import PIL.Image
+import PIL.ImageFilter
+import torch
+from matplotlib import pyplot as plt
+from rgbd import RGBD
+from sam import boxes_to_masks
+from select_bounding_box import select_bounding_box
+from torchvision.transforms.functional import to_tensor
+
+### Import Cutie ###
+sys.path.append("../../Cutie")
 # Note that you may need to install hydra-core to do this.
 from cutie.inference.inference_core import InferenceCore
 from cutie.utils.get_default_model import get_default_model
 
 sys.path.pop()
-
-from rgbd import RGBD
-from select_bounding_box import select_bounding_box
-from sam import boxes_to_masks
-import PIL.Image
 
 # @torch.cuda.amp.autocast()
 @torch.inference_mode()
@@ -34,6 +32,15 @@ def main():
 
     # Create a segmentation mask.
     image = PIL.Image.fromarray(rgbs[0])
+
+    # Resize image to max height of 448
+    width = image.width
+    height = image.height
+    new_height = 448
+    new_width = int(width * new_height / height)
+    new_width -= (new_width % 14)
+    image = image.resize((new_width, new_height))
+
     bbox = select_bounding_box(image)
     mask = torch.from_numpy(boxes_to_masks(image, [bbox])[0]).cuda()
 
@@ -48,15 +55,19 @@ def main():
     plt.show()
 
     mask = None
+
+    images = []
+    masks = []
     
     ti = 0
     start_time = time.time()
-    while time.time() < start_time + 30:
+    while ti < 10:
+        print(ti)
         rgbs, pcds = rgbd.capture()
         # load the image as RGB; normalization is done within the model
-        image = PIL.Image.fromarray(rgbs[0])
-        image_pil = image
-        image = to_tensor(image).cuda().float()
+        image_pil = PIL.Image.fromarray(rgbs[0])
+        image_pil = image_pil.resize((new_width, new_height))
+        image = to_tensor(image_pil).cuda().float()
 
         # This is how we would delete an object.
         # processor.delete_objects([1])
@@ -79,6 +90,9 @@ def main():
         # about what we are doing here.
         mask = (mask == 1).astype(float)
 
+        images.append(image_pil)
+        masks.append(mask)
+
         plt.title("Tracked Mask")
         plt.imshow(image_pil)
         plt.imshow(mask, alpha=mask)
@@ -86,5 +100,25 @@ def main():
 
         # Note that we can also create images using Image.fromarray(mask)
         # and mask_img.putpalette(palette).
+        ti += 1
+
+    # Create a set of positive and negative examples.
+    images = [D.ImageObservation(img) for img in images]
+    blur = PIL.ImageFilter.GaussianBlur(2)
+    for i in range(len(images)):
+        images.append(blur(images[i]))
+        masks.append(masks[i])
+    svc = D.compile_memories(images, masks)
+
+    # Now, reopen the camera, and highlight where the object is.
+    start_time = time.time()
+    while time.time() - start_time <= 30:
+        rgbs, pcds = rgbd.capture()
+        image_pil = PIL.Image.fromarray(rgbs[0])
+        image_pil = image_pil.resize((new_width, new_height))
+        image_obs = D.ImageObservation(image_pil)
+        
+        hl = D.highlight(image_obs, svc)
+        D.visualize_highlight(image_obs, hl, plt_pause=0.05)
 
 main()
