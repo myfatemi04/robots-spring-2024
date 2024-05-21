@@ -106,7 +106,7 @@ def main():
     images = [D.ImageObservation(img) for img in images]
     blur = PIL.ImageFilter.GaussianBlur(2)
     for i in range(len(images)):
-        images.append(blur(images[i]))
+        images.append(D.ImageObservation(images[i].image.filter(blur)))
         masks.append(masks[i])
     svc = D.compile_memories(images, masks)
 
