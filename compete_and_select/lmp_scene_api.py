@@ -598,8 +598,8 @@ class Robot(Panda):
                 best_grasp = grasp
                 best_score = score
 
-        start = np.array(start)
-        end = np.array(start)
+        start = np.array(best_grasp[1])
+        end = np.array(best_grasp[2])
         centroid = (start + end)/2
         right = (end - start)
         right /= np.linalg.norm(right)
