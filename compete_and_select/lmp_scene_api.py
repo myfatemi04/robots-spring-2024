@@ -104,9 +104,9 @@ def parse_likelihood_response(response: str) -> Tuple[str, Dict[int, str]]:
     The object is commonly used in this context.
 
     Choices:
-    1: likely
-    2: neutral
-    3: unlikely
+    1: likely (... and potential explanation after this point)
+    2: neutral (...)
+    3: unlikely (...)
     ```
     """
 
@@ -147,11 +147,15 @@ def get_selection_policy(context: list):
     # get logits
     logits = np.zeros(max(choices.keys()))
     for key, value in choices.items():
-        if value.lower().strip() == 'unlikely':
+        if value.lower().strip().startswith('unlikely'):
             logits[key - 1] = -1
-        elif value.lower().strip() == 'likely':
+        elif value.lower().strip().startswith('likely'):
             logits[key - 1] = 1
-
+        elif value.lower().strip().startswith('neutral'):
+            logits[key - 1] = 0
+        else:
+            print("Warning: unrecognized choice", value)
+            
     return (reasoning, logits)
 
 def object_from_bounding_box(bounding_box, imgs, pcds):
