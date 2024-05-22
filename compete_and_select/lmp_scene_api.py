@@ -155,7 +155,7 @@ def get_selection_policy(context: list):
             logits[key - 1] = 0
         else:
             print("Warning: unrecognized choice", value)
-            
+
     return (reasoning, logits)
 
 def object_from_bounding_box(bounding_box, imgs, pcds):
@@ -200,7 +200,7 @@ class Scene:
             # Here, we check and see if this object detection overlaps with any previously detected objects.
             if tracking_mask is not None:
                 values_under_mask = tracking_mask[object.segmentation_masks[0] > 0]
-                most_common_value = torch.mode(values_under_mask)
+                most_common_value = torch.mode(values_under_mask).values.item()
 
                 # Check if this lines up with any object IDs that we have previously created.
                 if most_common_value > 0:
