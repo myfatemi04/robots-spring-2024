@@ -41,6 +41,7 @@ Information about which objects should be selected may span several steps.
 
 import os
 import pickle
+import sys
 import time
 from dataclasses import dataclass
 
@@ -157,7 +158,7 @@ def agent_loop():
     event_stream = EventStream()
     memory_bank = MemoryBank()
     
-    settings = Config(
+    config = Config(
         use_xmem=False,
         use_visual_cot=True,
     )
@@ -170,11 +171,11 @@ def agent_loop():
     rgbd = RGBD(num_cameras=2, camera_ids=['000259521012', '000243521012'], auto_calibrate=False)
     # allows frames to be tracked even when work is being done on the main thread.
     # this should increase the quality of object tracking.
-    tracker = RGBDAsynchronousTracker(rgbd, disable_tracking=not settings.use_xmem)
+    tracker = RGBDAsynchronousTracker(rgbd, disable_tracking=not config.use_xmem)
     tracker.open()
 
     ### Initialize agent_state. ###
-    agent_state = AgentState(event_stream, memory_bank, tracker)
+    agent_state = AgentState(event_stream, memory_bank, tracker, config)
     human = Human(agent_state)
     code_executor = StatefulLanguageModelProgramExecutor(vars={"np": np, "human": human})
 
@@ -182,10 +183,12 @@ def agent_loop():
 
     robot = Robot('192.168.1.222')
 
-    robot.start_grasp()
-    robot.stop_grasp()
-    robot.move_to([0.4, 0, 0.4], orientation=vector2quat(claw=[0, 0, -1], right=[0, -1, 0]))
-    input("> Robot has been reset. >")
+    if '--no-reset' not in sys.argv:
+        robot.start_grasp()
+        robot.stop_grasp()
+        robot.move_to([0.4, 0, 0.4], orientation=vector2quat(claw=[0, 0, -1], right=[0, -1, 0]))
+
+    input("> Ready. >")
 
     # Wait for calibration
 
@@ -284,6 +287,7 @@ def agent_loop():
     except Exception as e:
         print("Error:", e)
     finally:
+        robot.stop_grasp()
         tracker.close()
 
         # Save the event stream
