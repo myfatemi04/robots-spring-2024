@@ -1,6 +1,6 @@
 import numpy as np
 from panda import Panda
-from rgbd import RGBD
+from compete_and_select.perception.rgbd import RGBD
 from scipy.spatial.transform import Rotation
 
 

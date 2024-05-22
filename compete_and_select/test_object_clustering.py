@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import hdbscan
 
-from rgbd import RGBD
+from compete_and_select.perception.rgbd import RGBD
 
 def create_clusters(pcd, colors):
     # Turn each point into a single vector, such that Euclidean distance resembles approx. probability

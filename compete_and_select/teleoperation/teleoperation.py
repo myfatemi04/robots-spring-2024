@@ -2,16 +2,14 @@
 This code is adapted from FurnitureBench: https://github.com/clvrai/furniture-bench
 """
 
+import threading
 import time
 
 import numpy as np
 import torch
 from polymetis import GripperInterface, RobotInterface
-import torchcontrol as toco
 
 from .joystick_controller import JoystickController
-from .operational_space_controller import init_controller
-from .robot_config import RobotConfig
 
 
 def quat_multiply(quaternion1, quaternion0):
@@ -94,60 +92,50 @@ def euler2mat(euler):
     mat[..., 0, 0] = cj * ci
     return mat
 
-if __name__ == "__main__":
-    # Initialize robot interface
-    server_ip = "192.168.1.222"
-    gripper = GripperInterface(ip_address=server_ip, port=50052)
-    robot = RobotInterface(ip_address=server_ip, enforce_version=False, port=50051)
+class TeleoperationInterface:
+    def __init__(self, robot: RobotInterface, gripper: GripperInterface, device: JoystickController, hz: float = 50):
+        self.running = False
+        self.thread = threading.Thread(target=self._run)
+        self.hz = hz
+        # Position and rotation commands are *divided* by this.
+        self.position_control = 3 * hz
+        self.rotation_control = 1.5 * hz
+        self.robot = robot
+        self.gripper = gripper
+        self.grasp_closed = gripper.get_state().width < 0.075
+        self.grip_force = 2.0
+        self.device = device
 
-    # Reset
-    robot.go_home()
-    time.sleep(2.0)
+    def start(self):
+        self.running = True
+        self.thread.start()
+    
+    def stop(self):
+        self.running = False
+        self.thread.join()
 
-    POSITION_CONTROL = 30 * 5
-    ROTATION_CONTROL = 15 * 5
-    GRASP_CLOSED = gripper.get_state().width < 0.075
+    def _run(self):
+        ee_pos, ee_quat = self.robot.get_ee_pose()
 
-    cfg = RobotConfig()
-    device = JoystickController()
-    # init_controller(robot, cfg)
-    # robot.send_torch_policy(toco.policies.CartesianImpedanceControl(cfg.control_kp, cfg.control_kv))
-    robot.start_cartesian_impedance(Kx=cfg.control_kp, Kxd=cfg.control_kv)
-
-    # Smoohten ee_pos over time.
-    ee_pos, ee_quat = robot.get_ee_pose()
-    beta = 0.2
-    grip_force = 2.0
-
-    hz_des = 50
-
-    try:
-        while True:
+        while self.running:
             loop_start = time.time()
 
-            new_ee_pos, new_ee_quat = robot.get_ee_pose()
-
-            device_data, robot_action = device.get_data()
+            device_data, robot_action = self.device.get_data()
             # Filtering
             
             arm_action, grasp = robot_action[:-1], robot_action[-1]
 
             # x,y, z movement scaling
-            arm_pose = arm_action[:3] / POSITION_CONTROL
+            arm_pose = arm_action[:3] / self.position_control
 
             # roll, pitch, yaw movement scaling
-            act_rot = arm_action[3:] / ROTATION_CONTROL
-
-            # Prevent drift, and only update the desired dimensions of the EE pos.
-            # ee_pos[arm_pose != 0] = beta * ee_pos[arm_pose != 0] + (1 - beta) * new_ee_pos[arm_pose != 0]
-            # if np.any(act_rot != 0):
-            #     ee_quat = beta * ee_quat + (1 - beta) * new_ee_quat
+            act_rot = arm_action[3:] / self.rotation_control
 
             # roll, pitch, yaw to quarternion conversion
             act_quat = mat2quat(euler2mat(act_rot))
             
             # goal xyz pose and quaternion calculation
-            goal_ee_pos = torch.tensor(ee_pos, dtype=torch.float32) + torch.tensor(arm_pose, dtype=torch.float32)
+            goal_ee_pos = ee_pos + torch.tensor(arm_pose, dtype=torch.float32)
             goal_ee_quat = torch.tensor(quat_multiply(ee_quat, act_quat), dtype=torch.float32)
 
             if (goal_ee_pos != ee_pos).any():
@@ -156,31 +144,27 @@ if __name__ == "__main__":
                 ee_quat = goal_ee_quat
 
             # gripper open-close execute
-            if grasp:
-                if grasp == -1 and GRASP_CLOSED == True:
-                    gripper.grasp(speed=5, force=grip_force, grasp_width=0.08, blocking=False)
-                    print("Opening grasp.")
-                    time.sleep(2)
-                    GRASP_CLOSED = False
+            if grasp == -1 and self.grasp_closed:
+                self.gripper.grasp(speed=5, force=self.grip_force, grasp_width=0.08, blocking=False)
+                print("Opening grasp.")
+                time.sleep(2)
+                self.grasp_closed = False
 
-                elif grasp == 1 and GRASP_CLOSED == False:
-                    gripper.grasp(speed=5, force=grip_force, grasp_width=0.0, blocking=False)
-                    print("Closing grasp.")
-                    time.sleep(2)
-                    GRASP_CLOSED = True
-                else:
-                    pass
+            elif grasp == 1 and not self.grasp_closed:
+                self.gripper.grasp(speed=5, force=self.grip_force, grasp_width=0.0, blocking=False)
+                print("Closing grasp.")
+                time.sleep(2)
+                self.grasp_closed = True
 
             # update xyz pose and quaternion
+            # This uses a min-jerk trajectory, which is a lot slower, but smoother.
             # robot.move_to_ee_pose(position=goal_ee_pos, orientation=goal_ee_quat)
-            robot.update_desired_ee_pose(position=goal_ee_pos, orientation=goal_ee_quat)
+            self.robot.update_desired_ee_pose(position=goal_ee_pos, orientation=goal_ee_quat)
 
             loop_end = time.time()
-            expected_delay = 1 / hz_des
+            expected_delay = 1 / self.hz
             # print(f"Current pose: {goal_ee_pos}, Loop time: {loop_end - loop_start:.3f}")
 
             time.sleep(max(0, expected_delay - (loop_end - loop_start)))
-    except KeyboardInterrupt:
-        print("Stopping.")
-    finally:
-        robot.terminate_current_policy()
+
+        self.robot.terminate_current_policy()

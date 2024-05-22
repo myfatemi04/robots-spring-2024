@@ -11,7 +11,7 @@ import torch
 from detect_grasps import detect_grasps
 from detect_objects import detect, draw_set_of_marks
 from panda import Panda
-from rgbd import RGBD
+from compete_and_select.perception.rgbd import RGBD
 from rotation_utils import vector2quat
 from scipy.spatial.transform import Rotation
 from transformers import SamModel, SamProcessor

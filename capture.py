@@ -13,7 +13,7 @@ os.chdir("hand_object_detector")
 detect_hands_pipeline.initialize()
 os.chdir("..")
 
-from camera import Camera, triangulate
+from compete_and_select.perception.camera import Camera, triangulate
 
 apriltag_object_points = np.array([
     # order: left bottom, right bottom, right top, left top

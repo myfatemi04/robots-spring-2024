@@ -35,7 +35,7 @@ def collect_memories_for_image(img):
         json.dump(groups, f)
 
 def collect_memories_live():
-    from rgbd import RGBD
+    from compete_and_select.perception.rgbd import RGBD
 
     rgbd = RGBD(num_cameras=1)
     try:
@@ -73,7 +73,7 @@ def load_memories(folder):
     img_O = ImageObservation(img)
     img_blurred_O = ImageObservation(img_blurred)
 
-    from rgbd import RGBD
+    from compete_and_select.perception.rgbd import RGBD
     rgbd = RGBD(num_cameras=1)
     (rgbs, pcds) = rgbd.capture()
     rgbd.close()

@@ -152,7 +152,7 @@ def create_vision_model_context(event_stream: EventStream, max_vision_events_to_
 def agent_loop():
     from config import Config
     from lmp_scene_api import Robot
-    from rgbd import RGBD
+    from compete_and_select.perception.rgbd import RGBD
     from rgbd_asynchronous_tracker import RGBDAsynchronousTracker
 
     event_stream = EventStream()

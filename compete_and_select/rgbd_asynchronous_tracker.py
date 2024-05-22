@@ -5,7 +5,7 @@ from threading import Lock, Thread, Event
 import PIL.Image
 import sam
 import torch
-from rgbd import RGBD
+from compete_and_select.perception.rgbd import RGBD
 from torchvision.transforms.functional import to_tensor
 
 sys.path.append("../../Cutie")

@@ -6,7 +6,7 @@ import cv2
 import tqdm
 
 import visualization
-from camera import VirtualCamera
+from compete_and_select.perception.camera import VirtualCamera
 from capture import Capture, apriltag_object_points
 
 

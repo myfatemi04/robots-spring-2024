@@ -9,7 +9,7 @@ import PIL.Image
 import torch
 from lmp_executor import StatefulLanguageModelProgramExecutor
 from lmp_scene_api import Robot, Scene
-from rgbd import RGBD
+from compete_and_select.perception.rgbd import RGBD
 from rotation_utils import vector2quat
 from transformers import SamModel, SamProcessor
 from sam import sam_model as model, sam_processor as processor

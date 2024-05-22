@@ -1,7 +1,7 @@
 import PIL.Image
 from lmp_planner import LanguageModelPlanner
 from lmp_scene_api import Scene, Robot
-from rgbd import RGBD
+from compete_and_select.perception.rgbd import RGBD
 
 robot = Robot('<mock>')
 rgbd = RGBD(num_cameras=1)

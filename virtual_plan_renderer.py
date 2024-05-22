@@ -4,7 +4,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 import cv2
 
-from camera import VirtualCamera
+from compete_and_select.perception.camera import VirtualCamera
 
 # Slight code duplication but whatever
 class CameraSetup:

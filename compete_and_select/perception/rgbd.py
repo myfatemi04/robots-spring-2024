@@ -1,16 +1,19 @@
 import sys
+
 import cv2
-from matplotlib import pyplot as plt
-
-sys.path.insert(0, "../")
-from camera import Camera
-import apriltag
-sys.path.remove("../")
-
 import numpy as np
 
+from .camera import Camera
+
+sys.path.insert(0, "../../")
+import apriltag
+
+sys.path.remove("../../")
+
+
+
 def enumerate_cameras(num_cameras=2):
-    import pyk4a # type: ignore
+    import pyk4a  # type: ignore
 
     if pyk4a.connected_device_count() < num_cameras:
         print(f"Error: Not enough K4A devices connected (<{num_cameras}).")

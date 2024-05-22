@@ -16,7 +16,7 @@ import PIL.Image
 from transformers import CLIPSegProcessor, CLIPSegForImageSegmentation
 import torch
 
-from camera import Camera, get_cameras
+from compete_and_select.perception.camera import Camera, get_cameras
 
 class DataCollector:
     def __init__(self, left: Camera, right: Camera, outdir: str):

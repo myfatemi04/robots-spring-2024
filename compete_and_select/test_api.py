@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from panda import Panda
-from rgbd import RGBD
+from compete_and_select.perception.rgbd import RGBD
 from scipy.spatial.transform import Rotation
 from transformers import SamModel, SamProcessor
 from sam import sam_model as model, sam_processor as processor

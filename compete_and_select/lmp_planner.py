@@ -171,7 +171,7 @@ class LanguageModelPlanner:
 
 # test the LMP planner
 def main():
-    from rgbd import RGBD
+    from compete_and_select.perception.rgbd import RGBD
     from lmp_scene_api import Robot
     from rotation_utils import vector2quat
     import matplotlib

@@ -8,7 +8,7 @@ import numpy as np
 import time
 
 from frankx import Affine, Robot
-from camera import get_cameras
+from compete_and_select.perception.camera import get_cameras
 
 def collect_trajectories():
     robot = Robot('192.168.1.162')

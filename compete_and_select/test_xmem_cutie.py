@@ -8,7 +8,7 @@ import PIL.Image
 import PIL.ImageFilter
 import torch
 from matplotlib import pyplot as plt
-from rgbd import RGBD
+from compete_and_select.perception.rgbd import RGBD
 from sam import boxes_to_masks
 from select_bounding_box import select_bounding_box
 from torchvision.transforms.functional import to_tensor
