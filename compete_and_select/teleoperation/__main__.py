@@ -1,5 +1,6 @@
 import os
 import pickle
+import sys
 import time
 from matplotlib import pyplot as plt
 
@@ -12,6 +13,7 @@ from .teleoperation import TeleoperationInterface
 
 
 def main():
+    is_practice_run = '--practice' in sys.argv
 
     # Initialize robot interface
     server_ip = "192.168.1.222"
@@ -32,17 +34,22 @@ def main():
     # Reset
     robot.go_home()
     time.sleep(2.0)
-    
+
     robot.start_cartesian_impedance(Kx=cfg.control_kp, Kxd=cfg.control_kv)
 
     teleoperation_interface.start()
 
-    i = 0
-    while os.path.exists(f"teleoperations/{i}"):
-        i += 1
-    
-    out_dir = f"teleoperations/{i}"
-    os.makedirs(out_dir)
+    if not is_practice_run:
+        i = 0
+        while os.path.exists(f"teleoperations/{i}"):
+            i += 1
+        
+        out_dir = f"teleoperations/{i}"
+        os.makedirs(out_dir)
+
+        print("Saving grip locations to:", out_dir)
+    else:
+        print("Running in practice mode.")
 
     event_counter = 0
 
