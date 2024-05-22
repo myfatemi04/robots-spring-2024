@@ -167,8 +167,8 @@ def agent_loop():
     # Calibration needs to be done in the main thread, so if we use the asynchronous
     # object tracker, we must disable calibration from being called automatically
     # during each capture.
-    # rgbd = RGBD(num_cameras=1, auto_calibrate=False)
-    rgbd = RGBD(num_cameras=2, camera_ids=['000259521012', '000243521012'], auto_calibrate=False)
+    rgbd = RGBD(num_cameras=1, auto_calibrate=False)
+    # rgbd = RGBD(num_cameras=2, camera_ids=['000259521012', '000243521012'], auto_calibrate=False)
     # allows frames to be tracked even when work is being done on the main thread.
     # this should increase the quality of object tracking.
     tracker = RGBDAsynchronousTracker(rgbd, disable_tracking=not config.use_xmem)
@@ -215,7 +215,7 @@ def agent_loop():
     else:
         with open("calibrations.pkl", "rb") as f:
             calibrations = pickle.load(f)
-            for i, calibration in enumerate(calibrations):
+            for i, calibration in enumerate(calibrations[:len(rgbd.cameras)]):
                 rgbd.cameras[i].extrinsic_matrix = calibration
 
         print("Restored calibrations.")

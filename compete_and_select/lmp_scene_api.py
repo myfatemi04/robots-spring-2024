@@ -569,6 +569,11 @@ class Robot(Panda):
         input("Operator press enter to continue.")
 
     def move_to_and_grasp(self, object: Object):
+        # we assume that in this case there is no object in the gripper's jaws
+        if self.gripper.get_state().width < 0.01:
+            self.release()
+            self.grasping = False
+
         assert not self.grasping, "Robot is currently in a `grasping` state, and cannot grasp another object. If you believe this is in error, call `robot.release()`."
 
         # use simplest grasping metric: lowest alpha [surface misalignment] score
