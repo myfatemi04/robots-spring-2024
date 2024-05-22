@@ -3,11 +3,11 @@ from typing import Dict, List, Optional, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
-import torch
-from select_bounding_box import select_bounding_box
 import segment_point_cloud
+import torch
 from agent_state import AgentState
 from clients import vlm_client
+from describe_objects import describe_objects
 from detect_objects import Detection
 from detect_objects import detect as detect_objects_2d
 from event_stream import (CodeActionEvent, ObjectSelectionDetectionResult,
@@ -23,12 +23,19 @@ from openai import OpenAI
 from panda import Panda
 from rotation_utils import vector2quat
 from scipy.spatial.transform import Rotation
+from select_bounding_box import select_bounding_box
 from select_object_v2 import format_object_detections
 from vlms import image_message
 
 pcd_segmenter = segment_point_cloud.SamPointCloudSegmenter(render_2d_results=False)
 
-def create_get_selection_policy_context(agent_state: AgentState, detections: List[Detection], retrievals: List[List[Retrieval]], annotated_image):
+def create_get_selection_policy_context(
+    agent_state: AgentState,
+    detections: List[Detection],
+    descriptions: List[str],
+    retrievals: List[List[Retrieval]],
+    annotated_image
+):
     last_vision_event = [i for i, event in enumerate(agent_state.event_stream.events) if isinstance(event, VisualPerceptionEvent)][-1]
     context = []
 
@@ -69,7 +76,7 @@ def create_get_selection_policy_context(agent_state: AgentState, detections: Lis
                 'content': event.raw_content,
             })
         elif isinstance(event, ObjectSelectionInitiation) and i == last_object_selection_initiation:
-            object_detections_string = format_object_detections(detections, retrievals)
+            object_detections_string = format_object_detections(detections, descriptions, retrievals)
 
             content = f"""It is now time for you to select an object to interact with. Object type: {event.object_type}. Object purpose: {event.object_purpose}.
             
@@ -210,19 +217,30 @@ class Scene:
                         print("Object detection overlaps with a previously detected object!")
                         print(f"object_id = {most_common_value}")
 
-        print("Number of detections:", len(detections))
-
         self.agent_state.event_stream.write(ObjectSelectionDetectionResult(detections))
 
+        print("Number of detections:", len(detections))
         assert len(detections) > 0, "No objects were detected. Maybe try a different object type? Alternatively, consider using the human functions to request manual object selection."
 
         retrievals = [self.agent_state.memory_bank.retrieve(detection.embedding, threshold=0.5) for detection in detections]
 
+        # Describe each object.
+        descriptions = describe_objects(self.imgs[0], [detection.box for detection in detections])
+
         annotated_image = draw_set_of_marks(self.imgs[0], detections)
 
-        rationale, logits = get_selection_policy(create_get_selection_policy_context(self.agent_state, detections, retrievals, annotated_image))
+        rationale, logits = get_selection_policy(create_get_selection_policy_context(
+            self.agent_state,
+            detections,
+            descriptions,
+            retrievals,
+            annotated_image
+        ))
 
         self.agent_state.event_stream.write(ObjectSelectionPolicyCreation(rationale, logits))
+
+        print("Descriptions:")
+        print(descriptions)
 
         print("Logits:", logits)
         plt.title("Annotated image")

@@ -57,14 +57,15 @@ class ObjectSelectionPolicyState:
     detections: List[Detection]
     detections_recalled_memories: List[List[Retrieval]]
 
-def format_object_detections(detections: List[Detection], memories_per_object: List[List[Retrieval]]):
+def format_object_detections(detections: List[Detection], descriptions: List[str], memories_per_object: List[List[Retrieval]]):
     prompt_string = 'Detections\n'
     for i, detection in enumerate(detections):
         center_x, center_y = detection.center
         
-        prompt_string += f"({i + 1}) at ({center_x:.0f}, {center_y:.0f})\n"
+        prompt_string += f"Object ({i + 1})\nPixel location: ({center_x:.0f}, {center_y:.0f})\nDescription: {descriptions[i]}\n"
         for score, memory in memories_per_object[i]:
-            prompt_string += f" - Note: This object has a visual similarity score of {score:.2f} to something which you noted, \"{memory.value}\".\n"
+            prompt_string += f"Note: This object has a visual similarity score of {score:.2f} to something which you noted, \"{memory.value}\".\n"
+        prompt_string += '\n'
     
     return prompt_string
 
@@ -145,6 +146,7 @@ def get_selection_policy(context: list):
 
     return (reasoning, logits)
 
+'''
 def __blah():
     object_scores = []
 
@@ -272,3 +274,4 @@ Imagine that this information will show up alongside the same object class in th
                 ),
                 value=to_remember,
             ))
+'''
