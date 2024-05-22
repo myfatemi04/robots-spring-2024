@@ -41,7 +41,7 @@ Parameters:
  
 2. `robot.move_by([dx, dy, dz])`: Moves the robot arm's hand by a specific relative amount (in meters).
 
-3. `robot.grasp(object)`: Grasps an object.
+3. `robot.move_to_and_grasp(object)`: Grasps an object.
 Parameters: 
  - `object`, a variable of type `Object` (which is an item of the list returned by `scene.detect`)
 
@@ -98,7 +98,7 @@ target_cup = scene.choose('cup', 'bottom cup for stack')
 stack_up = scene.choose('cup', 'cup to place on bottom cup')
 
 # Grasp the cup we wish to stack.
-robot.grasp(stack_cup)
+robot.move_to_and_grasp(stack_cup)
 
 # Move the robot's arm up,
 robot.move_by([0, 0, 0.3])
