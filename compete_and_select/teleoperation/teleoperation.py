@@ -8,6 +8,7 @@ import time
 import numpy as np
 import torch
 from polymetis import GripperInterface, RobotInterface
+from scipy.spatial.transform import Rotation
 
 from .joystick_controller import JoystickController
 
@@ -106,6 +107,14 @@ class TeleoperationInterface:
         self.grip_force = 2.0
         self.device = device
 
+        rotation_bias = Rotation.from_matrix(np.array([
+            [np.sqrt(2)/2, np.sqrt(2)/2, 0],
+            [-np.sqrt(2)/2, np.sqrt(2)/2, 0],
+            [0, 0, 1]
+        ]))
+        self.rotation_bias = rotation_bias.as_quat()
+        self.rotation_bias_inv = rotation_bias.inv().as_quat()
+
     def start(self):
         self.running = True
         self.thread.start()
@@ -116,6 +125,7 @@ class TeleoperationInterface:
 
     def _run(self):
         ee_pos, ee_quat = self.robot.get_ee_pose()
+        # ee_quat = self.rotation_bias.inv() * Rotation.from_quat(ee_quat)
 
         while self.running:
             loop_start = time.time()
@@ -133,14 +143,18 @@ class TeleoperationInterface:
 
             # roll, pitch, yaw to quarternion conversion
             act_quat = mat2quat(euler2mat(act_rot))
+            # conjugate the action around the rotation bias
+            act_quat = quat_multiply(self.rotation_bias, quat_multiply(act_quat, self.rotation_bias_inv))
             
             # goal xyz pose and quaternion calculation
             goal_ee_pos = ee_pos + torch.tensor(arm_pose, dtype=torch.float32)
+            # goal_ee_quat = self.rotation_bias * (ee_quat * Rotation.from_quat(act_quat))
             goal_ee_quat = torch.tensor(quat_multiply(ee_quat, act_quat), dtype=torch.float32)
 
             if (goal_ee_pos != ee_pos).any():
                 ee_pos = goal_ee_pos
             if (goal_ee_quat != ee_quat).any():
+            # if (goal_ee_quat.as_quat() != ee_quat).any():
                 ee_quat = goal_ee_quat
 
             # gripper open-close execute
@@ -160,6 +174,10 @@ class TeleoperationInterface:
             # This uses a min-jerk trajectory, which is a lot slower, but smoother.
             # robot.move_to_ee_pose(position=goal_ee_pos, orientation=goal_ee_quat)
             self.robot.update_desired_ee_pose(position=goal_ee_pos, orientation=goal_ee_quat)
+            # self.robot.update_desired_ee_pose(
+            #     position=goal_ee_pos,
+            #     orientation=torch.tensor(goal_ee_quat.as_quat(), dtype=torch.float32)
+            # )
 
             loop_end = time.time()
             expected_delay = 1 / self.hz
