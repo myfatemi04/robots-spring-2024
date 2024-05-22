@@ -98,7 +98,7 @@ class TeleoperationInterface:
         self.thread = threading.Thread(target=self._run)
         self.hz = hz
         # Position and rotation commands are *divided* by this.
-        self.position_control = 3 * hz
+        self.position_control = 6 * hz
         self.rotation_control = 1.5 * hz
         self.robot = robot
         self.gripper = gripper

@@ -1,6 +1,7 @@
 import os
 import pickle
 import time
+from matplotlib import pyplot as plt
 
 from polymetis import GripperInterface, RobotInterface
 
@@ -31,6 +32,7 @@ def main():
     # Reset
     robot.go_home()
     time.sleep(2.0)
+    
     robot.start_cartesian_impedance(Kx=cfg.control_kp, Kxd=cfg.control_kv)
 
     teleoperation_interface.start()
@@ -45,23 +47,31 @@ def main():
     event_counter = 0
 
     cmd = None
-    while cmd != "exit":
-        cmd = input("> ")
-        event_counter += 1
+    try:
+        while cmd != "exit":
+            cmd = input("> ")
+            event_counter += 1
 
-        if cmd == 'c':
-            # Capture an RGBD image and save it.
-            rgbs, pcds = rgbd.capture()
-            with open(os.path.join(out_dir, f"{event_counter:03d}_rgbd.pkl"), "wb") as f:
-                pickle.dump((rgbs, pcds), f)
+            if cmd == 'c':
+                # Capture an RGBD image and save it.
+                rgbs, pcds = rgbd.capture()
+                with open(os.path.join(out_dir, f"{event_counter:03d}_rgbd.pkl"), "wb") as f:
+                    pickle.dump((rgbs, pcds), f)
 
-        elif cmd == 'g':
-            # Capture the current robot state.
-            with open(os.path.join(out_dir, f"{event_counter:03d}_state.pkl"), "wb") as f:
-                pos, quat = robot.get_ee_pose()
-                pickle.dump({"pos": pos.tolist(), "quat_wxyz": quat.tolist()}, f)
+                plt.title("Captured Image")
+                plt.imshow(rgbs[0])
+                plt.show()
 
-    teleoperation_interface.stop()
+            elif cmd == 'g':
+                # Capture the current robot state.
+                with open(os.path.join(out_dir, f"{event_counter:03d}_state.pkl"), "wb") as f:
+                    pos, quat = robot.get_ee_pose()
+                    pickle.dump({"pos": pos.tolist(), "quat_wxyz": quat.tolist()}, f)
+
+                    print("Captured position:", pos.tolist())
+                    print("Captured quaternion:", quat.tolist())
+    finally:
+        teleoperation_interface.stop()
 
 if __name__ == "__main__":
     main()
