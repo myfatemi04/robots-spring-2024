@@ -286,9 +286,9 @@ def agent_loop():
 
         # Save the event stream
         i = 0
-        while os.path.exists(f"event_stream_{i}.pkl"):
+        while os.path.exists(f"./memories/event_stream_{i}.pkl"):
             i += 1
-        with open(f"event_stream_{i}.pkl", "wb") as f:
+        with open(f"memories/event_stream_{i}.pkl", "wb") as f:
             pickle.dump(event_stream, f)
 
 if __name__ == '__main__':
