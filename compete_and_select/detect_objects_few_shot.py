@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from functools import cached_property, partial
+import random
 from typing import List, Tuple
 
 import matplotlib.pyplot as plt
@@ -170,14 +171,21 @@ def compile_memories(images: List[ImageObservation], mask_per_image):
     positive_embeddings = []
     negative_embeddings = []
 
-    for obs, mask in zip(images, mask_per_image):
+    for i, (obs, mask) in enumerate(zip(images, mask_per_image)):
+        print('Compiling image', i, 'out of', len(images))
         pos, neg = get_embeddings_under_mask(obs, mask)
         positive_embeddings.extend(pos)
         negative_embeddings.extend(neg)
 
+    # Create a subset of the negative embeddings
+    max_negative = len(positive_embeddings) * 8
+    random.shuffle(negative_embeddings)
+    negative_embeddings = negative_embeddings[:max_negative]
+
     embeds = np.array(positive_embeddings + negative_embeddings)
     class_labels = [1]*len(positive_embeddings) + [0]*len(negative_embeddings)
-    svm = SVC(probability=True)
+    # svm = SVC(probability=True)
+    svm = SVC(probability=True, kernel='linear')
     svm = svm.fit(embeds, class_labels)
 
     return svm

@@ -1,6 +1,8 @@
 import sys
 import time
 
+import numpy as np
+
 import detect_objects_few_shot as D
 import PIL.Image
 import PIL.ImageFilter
@@ -106,8 +108,21 @@ def main():
     images = [D.ImageObservation(img) for img in images]
     blur = PIL.ImageFilter.GaussianBlur(2)
     for i in range(len(images)):
+        # Augmentation 1: Blurring
         images.append(D.ImageObservation(images[i].image.filter(blur)))
         masks.append(masks[i])
+
+        # Augmentation 2: Background color change
+        # This assumes that the object will appear similar in different contexts.
+        img_np = np.array(images[i].image)
+        background_shifted_image = np.zeros((new_height, new_width, 3), np.uint8)
+        color = np.random.randint(0, 256, 3)
+        msk = masks[i] > 0
+        background_shifted_image[:, :] = color
+        background_shifted_image[msk] = img_np[msk]
+        images.append(D.ImageObservation(PIL.Image.fromarray(background_shifted_image)))
+        masks.append(masks[i])
+
     svc = D.compile_memories(images, masks)
 
     # Now, reopen the camera, and highlight where the object is.
