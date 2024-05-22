@@ -19,7 +19,7 @@ sys.path.pop()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class RGBDAsynchronousTracker:
-    def __init__(self, rgbd: RGBD):
+    def __init__(self, rgbd: RGBD, disable_tracking = False):
         self.rgbd = rgbd
         self.prev_rgbs = None
         self.prev_pcds = None
@@ -38,6 +38,7 @@ class RGBDAsynchronousTracker:
 
         self.publish_event = Event()
         self.tracking_anything = False
+        self.disable_tracking = disable_tracking
 
     def open(self):
         self.running = True
@@ -78,10 +79,12 @@ class RGBDAsynchronousTracker:
                         self.memory_queue = []
                         self.memory_queue_lock.release()
                         
-                        overall_mask = self.create_joint_mask(rgbs[0], bounding_boxes, object_ids)
-                        output_prob = self.cutie_processor.step(img, overall_mask, objects=object_ids)
-                        self.tracking_anything = True
+                        if not self.disable_tracking:
+                            overall_mask = self.create_joint_mask(rgbs[0], bounding_boxes, object_ids)
+                            output_prob = self.cutie_processor.step(img, overall_mask, objects=object_ids)
+                            self.tracking_anything = True
                     elif self.tracking_anything:
+                        # If self.disable_tracking is true, then this branch will never be reached.
                         output_prob = self.cutie_processor.step(img)
 
                     # Save GPU memory.

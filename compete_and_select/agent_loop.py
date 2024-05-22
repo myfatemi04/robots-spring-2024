@@ -41,6 +41,7 @@ Information about which objects should be selected may span several steps.
 
 import os
 import pickle
+import time
 from dataclasses import dataclass
 
 import dotenv
@@ -147,11 +148,8 @@ def create_vision_model_context(event_stream: EventStream, max_vision_events_to_
             })
     return context
 
-@dataclass
-class Config:
-    use_xmem: bool
-
 def agent_loop():
+    from config import Config
     from lmp_scene_api import Robot
     from rgbd import RGBD
     from rgbd_asynchronous_tracker import RGBDAsynchronousTracker
@@ -159,7 +157,10 @@ def agent_loop():
     event_stream = EventStream()
     memory_bank = MemoryBank()
     
-    settings = Config(use_xmem=True)
+    settings = Config(
+        use_xmem=False,
+        use_visual_cot=True,
+    )
     
     ### Initialize camera capture. ###
     # Calibration needs to be done in the main thread, so if we use the asynchronous
@@ -169,9 +170,8 @@ def agent_loop():
     rgbd = RGBD(num_cameras=2, camera_ids=['000259521012', '000243521012'], auto_calibrate=False)
     # allows frames to be tracked even when work is being done on the main thread.
     # this should increase the quality of object tracking.
-    tracker = RGBDAsynchronousTracker(rgbd)
+    tracker = RGBDAsynchronousTracker(rgbd, disable_tracking=not settings.use_xmem)
     tracker.open()
-
 
     ### Initialize agent_state. ###
     agent_state = AgentState(event_stream, memory_bank, tracker)
@@ -240,6 +240,8 @@ def agent_loop():
                     print(f"Error: {output}")
                     event_stream.write(ExceptionEvent("CodeExecutionError", output)) # type: ignore
 
+            time.sleep(1)
+
             # Add new item to visual memory.
             # Ask the robot to compare / contrast the images.
             rgbs, pcds = rgbd.capture()
@@ -288,6 +290,9 @@ def agent_loop():
         i = 0
         while os.path.exists(f"./memories/event_stream_{i}.pkl"):
             i += 1
+        
+        print("Run ID:", i)
+
         with open(f"memories/event_stream_{i}.pkl", "wb") as f:
             pickle.dump(event_stream, f)
 

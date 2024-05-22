@@ -225,7 +225,10 @@ class Scene:
         retrievals = [self.agent_state.memory_bank.retrieve(detection.embedding, threshold=0.5) for detection in detections]
 
         # Describe each object.
-        descriptions = describe_objects(self.imgs[0], [detection.box for detection in detections])
+        if self.agent_state.config.use_visual_cot:
+            descriptions = describe_objects(self.imgs[0], [detection.box for detection in detections])
+        else:
+            descriptions = None
 
         annotated_image = draw_set_of_marks(self.imgs[0], detections)
 

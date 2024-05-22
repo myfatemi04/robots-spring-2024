@@ -62,7 +62,9 @@ def format_object_detections(detections: List[Detection], descriptions: List[str
     for i, detection in enumerate(detections):
         center_x, center_y = detection.center
         
-        prompt_string += f"Object ({i + 1})\nPixel location: ({center_x:.0f}, {center_y:.0f})\nDescription: {descriptions[i]}\n"
+        prompt_string += f"Object ({i + 1})\nPixel location: ({center_x:.0f}, {center_y:.0f})\n"
+        if descriptions is not None:
+            prompt_string += f"Description: {descriptions[i]}\n"
         for score, memory in memories_per_object[i]:
             prompt_string += f"Note: This object has a visual similarity score of {score:.2f} to something which you noted, \"{memory.value}\".\n"
         prompt_string += '\n'
