@@ -217,8 +217,7 @@ def agent_loop():
 
         print("Restored calibrations.")
 
-    event_stream.write(VerbalFeedbackEvent("Please pick up the tripod."))
-    # event_stream.write(VerbalFeedbackEvent("please put the orange block in one of the cups"))
+    event_stream.write(VerbalFeedbackEvent(input("Instructions for robot: ")))
 
     rgbs, pcds = rgbd.capture()
     imgs = [PIL.Image.fromarray(rgb) for rgb in rgbs]
