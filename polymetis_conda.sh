@@ -1,5 +1,9 @@
 #!/bin/bash
-# export PS1='\w\$ '
+# if we are in an environment
+conda deactivate
+# deactivate the base environment as well
+conda deactivate
+
 export PS1="\[\]\[\]\[\e]0;\u@\h: \w\a\]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ \[\]\[\]"
 # >>> conda initialize >>>
 # !! Contents within this block are managed by 'conda init' !!
@@ -19,10 +23,9 @@ if [ -f "/home/huron/Repos_2/polymetis_miniconda3/etc/profile.d/mamba.sh" ]; the
     . "/home/huron/Repos_2/polymetis_miniconda3/etc/profile.d/mamba.sh"
 fi
 # <<< conda initialize <<<
-# conda activate robo
+
+# Activate the Polymetis environment.
+conda activate polymetis_again
 
 # export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
-
 # export CUDA_HOME=/home/huron/Repos_2/polymetis_miniconda3/envs/robo
-
-
