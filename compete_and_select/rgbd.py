@@ -72,7 +72,7 @@ class RGBD:
         except RuntimeError as e:
             print("AprilTag runtime error:", e, file=sys.stderr)
             detections = []
-        print(detections)
+        # print(detections)
         if len(detections) == 1:
             detection = detections[0]
             apriltag_image_points = detection['lb-rb-rt-lt']

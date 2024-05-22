@@ -68,6 +68,10 @@ class SamPointCloudSegmenter():
 
         # Finds nearby points in the supplementary image.
         n1 = segmented_points.shape[0]
+        if n1 == 0:
+            print("No points found in other side segmentation.")
+            return (None, None) # pcd will be skipped in the outer loop
+
         # Filter out invalid points in the supplementary image.
         w = supplementary_rgb_image.width
         h = supplementary_rgb_image.height

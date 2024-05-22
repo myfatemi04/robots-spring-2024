@@ -194,16 +194,17 @@ class Scene:
                 continue
 
             # Here, we check and see if this object detection overlaps with any previously detected objects.
-            values_under_mask = tracking_mask[object.segmentation_masks[0] > 0]
-            most_common_value = torch.mode(values_under_mask)
+            if tracking_mask is not None:
+                values_under_mask = tracking_mask[object.segmentation_masks[0] > 0]
+                most_common_value = torch.mode(values_under_mask)
 
-            # Check if this lines up with any object IDs that we have previously created.
-            if most_common_value > 0:
-                proportion = torch.mean(values_under_mask == most_common_value)
-                if proportion > 0.5:
-                    # Decent overlap with a previously used object!
-                    print("Object detection overlaps with a previously detected object!")
-                    print(f"object_id = {most_common_value}")
+                # Check if this lines up with any object IDs that we have previously created.
+                if most_common_value > 0:
+                    proportion = torch.mean(values_under_mask == most_common_value)
+                    if proportion > 0.5:
+                        # Decent overlap with a previously used object!
+                        print("Object detection overlaps with a previously detected object!")
+                        print(f"object_id = {most_common_value}")
 
         print("Number of detections:", len(detections))
 
@@ -542,7 +543,7 @@ class Robot(Panda):
         print("LLM has signaled that the task has been completed")
         input("Operator press enter to continue.")
 
-    def grasp(self, object: Object):
+    def move_to_and_grasp(self, object: Object):
         assert not self.grasping, "Robot is currently in a `grasping` state, and cannot grasp another object. If you believe this is in error, call `robot.release()`."
 
         # use simplest grasping metric: lowest alpha [surface misalignment] score
