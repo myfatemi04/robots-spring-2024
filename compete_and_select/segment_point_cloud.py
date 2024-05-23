@@ -9,10 +9,10 @@ import numpy as np
 import PIL.Image as Image
 import torch
 from matplotlib import pyplot as plt
-from ransac import get_bounding_box_ransac
-from set_axes_equal import set_axes_equal
+from .ransac import get_bounding_box_ransac
+from .set_axes_equal import set_axes_equal
 from transformers import SamModel, SamProcessor
-import sam
+from . import sam
 
 class SamPointCloudSegmenter():
     def __init__(self, device='cuda' if torch.cuda.is_available() else 'cpu', render_2d_results=False):

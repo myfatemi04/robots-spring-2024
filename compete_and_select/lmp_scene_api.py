@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
-import segment_point_cloud
+from . import segment_point_cloud
 import torch
 from openai import OpenAI
 from scipy.spatial.transform import Rotation

@@ -14,10 +14,10 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 # create clip embeddings for objects
-def add_object_clip_embeddings(image: Image.Image, detections):
+def add_object_clip_embeddings(image: Image.Image, detections, use_projection):
     with torch.no_grad():
         for detection in detections:
-            detection['emb'], detection['emb_augmented'] = embed_box(image, **detection['box'])
+            detection['emb'], detection['emb_augmented'] = embed_box(image, **detection['box'], use_projection=use_projection)
         
     return detections
 
@@ -58,7 +58,7 @@ def _fix_detection_heights(predictions, image_width, image_height):
         predictions_2.append(rescaled_prediction)
     return predictions_2
 
-def detect(image, label):
+def detect(image, label, use_clip_projection=False):
     start = time.time()
 
     with torch.no_grad():
@@ -101,7 +101,7 @@ def detect(image, label):
 
     detections = add_object_clip_embeddings(image, [
         prediction for (i, prediction) in enumerate(predictions) if i in keep
-    ])
+    ], use_clip_projection)
 
     return [
         Detection(

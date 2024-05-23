@@ -25,7 +25,7 @@ def get_clip_embeddings___old(image: PIL.Image.Image, return_np=True):
     
     return result
 
-def embed_box(image: PIL.Image.Image, xmin, ymin, xmax, ymax):
+def embed_box(image: PIL.Image.Image, xmin, ymin, xmax, ymax, use_projection=False):
     width = xmax - xmin
     height = ymax - ymin
     center_x = (xmax + xmin) // 2
@@ -38,7 +38,10 @@ def embed_box(image: PIL.Image.Image, xmin, ymin, xmax, ymax):
     object_emb_output = clip_vision_model(
         **clip_processor(images=[object_img, rotated_1, rotated_2], return_tensors='pt').to(device) # type: ignore
     )
-    image_embeds = object_emb_output.last_hidden_state[:, 0, :]
+    if use_projection:
+        image_embeds = object_emb_output.image_embeds
+    else:
+        image_embeds = object_emb_output.last_hidden_state[:, 0, :]
     return image_embeds[0].detach().cpu().numpy(), image_embeds[1:].detach().cpu().numpy()
 
 # Adapted from github.com/f3rm/f3rm
@@ -125,7 +128,6 @@ def get_clip_embeddings(image: PIL.Image.Image):
         x = clip_processor(
             images=image,
             return_tensors='pt',
-            output_hidden_states=True,
             do_center_crop=False,
             do_resize=False
         ).pixel_values.to(device)
@@ -186,6 +188,36 @@ def get_clip_embeddings_dense_hops(image: PIL.Image.Image):
 
     embedding_map /= embedding_count[..., None]
     return embedding_map
+
+def get_text_embeds(texts):
+    return clip_text_model(
+        **clip_processor(text=texts, return_tensors='pt', padding=True).to(device)
+    ).text_embeds.detach().cpu().numpy()
+
+def get_full_scale_clip_embeddings(image: PIL.Image.Image):
+    # create CLIP embedding map. round up to reach 14.
+    new_height = image.height + ((14 - (image.height % 14)) % 14)
+    new_width = image.width + ((14 - (image.width % 14)) % 14)
+    new_image_blank = np.zeros((new_height, new_width, 3), dtype=np.uint8)
+    new_image_blank[:image.height, :image.width] = np.array(image)
+    new_image = PIL.Image.fromarray(new_image_blank)
+    # extract CLIP embeddings from this (store the raw version)
+    # this uses the MaskCLIP reparameterization trick
+    _CLIP_pooled_embed, CLIP_embeds = get_clip_embeddings(new_image)
+    CLIP_embeds = torch.tensor(CLIP_embeds)
+    # (minibatch, channels, height, width), (output height, output width)
+    # https://pytorch.org/docs/stable/generated/torch.nn.functional.interpolate.html
+    CLIP_embeds_interpolated = interpolate(CLIP_embeds.permute(2, 0, 1).unsqueeze(0), (new_height, new_width)).squeeze(0).permute(1, 2, 0).numpy()
+    CLIP_embeds_interpolated = CLIP_embeds_interpolated[:image.height, :image.width]
+    
+    assert (
+        (CLIP_embeds_interpolated.shape[0] == image.height) and (CLIP_embeds_interpolated.shape[1] == image.width)
+    ), f"Shape mismatch. CLIP embeds shape: {CLIP_embeds_interpolated.shape}"
+    
+    return {
+        "raw_padded": CLIP_embeds,
+        "rescaled_cropped": CLIP_embeds_interpolated,
+    }
 
 def test():
     image = PIL.Image.open("sample_images/oculus_and_headphones.png")

@@ -3,18 +3,23 @@ import time
 from threading import Lock, Thread, Event
 
 import PIL.Image
-import sam
+from .. import sam
 import torch
 from .rgbd import RGBD
 from torchvision.transforms.functional import to_tensor
 
-sys.path.append("../../Cutie")
+def get_cutie():
+    sys.path.append("../../Cutie")
+    sys.path.append("../Cutie")
 
-# Note that you may need to install hydra-core to do this.
-from cutie.inference.inference_core import InferenceCore  # type: ignore
-from cutie.utils.get_default_model import get_default_model  # type: ignore
+    # Note that you may need to install hydra-core to do this.
+    from cutie.inference.inference_core import InferenceCore  # type: ignore
+    from cutie.utils.get_default_model import get_default_model  # type: ignore
 
-sys.path.pop()
+    sys.path.pop()
+    sys.path.pop()
+    
+    return InferenceCore, get_default_model
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -32,9 +37,14 @@ class RGBDAsynchronousTracker:
         self.memory_queue_lock = Lock()
 
         # obtain the Cutie model with default parameters -- skipping hydra configuration
-        self.cutie = get_default_model()
-        # Typically, use one InferenceCore per video
-        self.cutie_processor = InferenceCore(self.cutie, cfg=self.cutie.cfg)
+        if not disable_tracking:
+            InferenceCore, get_default_model = get_cutie()
+            self.cutie = get_default_model()
+            # Typically, use one InferenceCore per video
+            self.cutie_processor = InferenceCore(self.cutie, cfg=self.cutie.cfg)
+        else:
+            self.cutie = None
+            self.cutie_processor = None
 
         self.publish_event = Event()
         self.tracking_anything = False

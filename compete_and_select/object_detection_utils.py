@@ -16,7 +16,12 @@ def draw_set_of_marks(image: Image.Image, predictions: List[Detection], custom_l
 
     object_id_counter = 1
     for prediction in predictions:
-        x1, y1, x2, y2 = prediction.box
+        if type(prediction) in [tuple, list]:
+            x1, y1, x2, y2 = prediction
+        elif isinstance(prediction, Detection):
+            x1, y1, x2, y2 = prediction.box
+        else:
+            raise TypeError("Invalid type passed in for prediction list")
         
         ax.add_patch(patches.Rectangle(
             (x1, y1), x2 - x1, y2 - y1,

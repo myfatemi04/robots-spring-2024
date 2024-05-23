@@ -27,3 +27,6 @@ monometis
 
 *.pt
 k4aviewer.err
+
+.env
+

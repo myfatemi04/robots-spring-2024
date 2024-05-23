@@ -2,8 +2,8 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import convolve2d
-from set_axes_equal import set_axes_equal
-from voxelize import voxelize
+from .set_axes_equal import set_axes_equal
+from .voxelize import voxelize
 
 
 def get_normal(window):
