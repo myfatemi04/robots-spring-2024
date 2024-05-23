@@ -338,7 +338,7 @@ def artificial_narration():
     masks = boxes_to_masks(train_image.image, food_item_train_examples)
 
     for mask in masks:
-        overall_mask |= (mask > 0.5)
+        overall_mask |= (mask != 0)
 
     # center crop.
     offset = (train_image.image.width - train_image.image.height) // 2

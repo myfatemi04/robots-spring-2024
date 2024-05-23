@@ -44,7 +44,7 @@ def main():
     image = image.resize((new_width, new_height))
 
     bbox = select_bounding_box(image)
-    mask = torch.from_numpy(boxes_to_masks(image, [bbox])[0]).cuda()
+    mask = torch.from_numpy(boxes_to_masks(image, [bbox])[0]).cuda().float()
 
     image_pil = image
     image = to_tensor(image).cuda().float()

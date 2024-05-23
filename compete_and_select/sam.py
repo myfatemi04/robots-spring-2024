@@ -1,5 +1,6 @@
 from typing import List, Tuple
 
+import numpy as np
 import PIL.Image
 import torch
 from transformers import SamModel, SamProcessor
@@ -9,7 +10,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 sam_model: SamModel = SamModel.from_pretrained("facebook/sam-vit-base").to(device) # type: ignore
 sam_processor: SamProcessor = SamProcessor.from_pretrained("facebook/sam-vit-base") # type: ignore
 
-def boxes_to_masks(image: PIL.Image.Image, input_boxes: List[Tuple[int, int, int, int]]):
+def boxes_to_masks(image: PIL.Image.Image, input_boxes: List[Tuple[int, int, int, int]]) -> List[np.ndarray]:
     with torch.no_grad():
         inputs = sam_processor(images=[image], input_boxes=[[list(box) for box in input_boxes]], return_tensors="pt").to(device)
         outputs = sam_model(**inputs)
@@ -18,9 +19,9 @@ def boxes_to_masks(image: PIL.Image.Image, input_boxes: List[Tuple[int, int, int
             inputs["original_sizes"].cpu(),      # type: ignore
             inputs["reshaped_input_sizes"].cpu() # type: ignore
         )[0] # 0 to remove batch dimension
-        return [mask[0].detach().cpu().numpy().astype(float) for mask in masks]
+        return [mask[0].detach().cpu().numpy().astype(bool) for mask in masks]
 
-def points_to_masks(image: PIL.Image.Image, points: List[Tuple[int, int]]):
+def points_to_masks(image: PIL.Image.Image, points: List[Tuple[int, int]]) -> List[np.ndarray]:
     masks = []
     with torch.no_grad():
         i = 0

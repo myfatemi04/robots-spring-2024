@@ -2,11 +2,14 @@
 Here, we label photos with bounding boxes.
 """
 
-import os
 import json
+import os
+import pickle
 
+from matplotlib import pyplot as plt
 from PIL import Image
 
+from .sam import boxes_to_masks
 from .select_bounding_box import select_bounding_box
 
 
@@ -45,10 +48,7 @@ def load_images_and_classes(prefix_dir):
         image_class_tuples.append((filename, image, classes))
     return image_class_tuples
 
-def main():
-    # Assuming images are in the current directory
-    prefix_dir = './photos/solidbg/cups'
-
+def label_bounding_boxes(prefix_dir):
     # Execute the function with the list of filenames
     image_class_tuples = load_images_and_classes(prefix_dir)
 
@@ -70,5 +70,51 @@ def main():
     with open(os.path.join(prefix_dir, 'labels.json'), 'w') as f:
         json.dump(all_labels, f)
 
+def generate_masks_from_bounding_boxes(prefix_dir, labels):
+    mask_results = {}
+
+    for filename, labels in labels.items():
+        print("Showing masks for filename", filename)
+        image = Image.open(os.path.join(prefix_dir, filename))
+
+        # should be a Boolean ndarray
+        masks = boxes_to_masks(image, [bbox for _, bbox in labels])
+        for (cls, bbox), mask in zip(labels, masks):
+            plt.title("Generated mask: " + cls)
+            plt.imshow(image)
+            plt.imshow(mask.astype(float), alpha=mask.astype(float))
+            plt.show()
+
+        all_ok = 'y' == input('All OK? (y/n) ')
+        if not all_ok:
+            print("OK mask files:")
+            print(list(mask_results.keys()))
+            print("Current filename:", filename)
+            print("... Exiting so the data can be corrected ...")
+            break
+        
+        mask_results[filename] = masks
+        
+    with open(os.path.join(prefix_dir, 'masks.pkl'), 'wb') as f:
+        pickle.dump(mask_results, f)
+
 if __name__ == "__main__":
-    main()
+    # 1. Generate bounding boxes
+    # 2. Generate masks
+
+    prefix_dir = './photos/solidbg/cups'
+
+    # main(prefix_dir)
+
+    json_path = os.path.join(prefix_dir, 'labels.json')
+    with open(json_path, 'r') as f:
+        labels = json.load(f)
+
+    generate_masks_from_bounding_boxes(prefix_dir, labels)
+    
+    # print(
+    #     select_bounding_box(
+    #         Image.open('./photos/solidbg/cups/000_all.png'),
+    #         "Select coffee cup bruh"
+    #     )
+    # )
