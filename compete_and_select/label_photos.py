@@ -9,6 +9,7 @@ import pickle
 from matplotlib import pyplot as plt
 from PIL import Image
 
+from .class_labels import class_labels
 from .sam import boxes_to_masks
 from .select_bounding_box import select_bounding_box
 
@@ -113,8 +114,6 @@ if __name__ == "__main__":
     # 2. Generate masks
 
     prefix_dir = './photos/solidbg/condiments'
-
-    from class_labels import class_labels
     slug_labels = class_labels['condiments']['slug_labels']
     natural_language_labels = class_labels['condiments']['natural_language_labels']
 
