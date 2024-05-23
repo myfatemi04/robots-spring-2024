@@ -6,8 +6,9 @@ from typing import List
 import numpy as np
 import PIL.Image
 from openai import OpenAI
-from lmp_executor import StatefulLanguageModelProgramExecutor
-from memory_bank_v2 import MemoryBank
+
+from .lmp_executor import StatefulLanguageModelProgramExecutor
+from .memory_bank_v2 import MemoryBank
 
 '''
 We construct a chat history using the system prompt and prev. observations
@@ -171,10 +172,11 @@ class LanguageModelPlanner:
 
 # test the LMP planner
 def main():
-    from compete_and_select.perception.rgbd import RGBD
+    import matplotlib
     from lmp_scene_api import Robot
     from rotation_utils import vector2quat
-    import matplotlib
+
+    from compete_and_select.perception.rgbd import RGBD
 
     matplotlib.use("Qt5agg") # required so we don't crash for some reason
 

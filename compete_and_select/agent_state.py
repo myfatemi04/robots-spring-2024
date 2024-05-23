@@ -2,10 +2,11 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from event_stream import Event, EventStream
-from memory_bank_v2 import MemoryBank
-from rgbd_asynchronous_tracker import RGBDAsynchronousTracker
-from config import Config
+from .config import Config
+from .event_stream import Event, EventStream
+from .memory_bank_v2 import MemoryBank
+from .perception.rgbd_asynchronous_tracker import RGBDAsynchronousTracker
+
 
 @dataclass
 class AgentState:

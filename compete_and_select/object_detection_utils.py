@@ -4,7 +4,8 @@ from typing import List
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import PIL.Image as Image
-from detect_objects import Detection
+
+from .detect_objects import Detection
 
 
 def draw_set_of_marks(image: Image.Image, predictions: List[Detection], custom_labels=None):

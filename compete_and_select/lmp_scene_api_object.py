@@ -1,5 +1,7 @@
 from functools import cached_property
-from detect_grasps import detect_grasps
+
+from .detect_grasps import detect_grasps
+
 
 class Object:
     def __init__(self, point_cloud, colors, segmentation_masks, clip_features=None):

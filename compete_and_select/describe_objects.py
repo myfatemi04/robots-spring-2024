@@ -2,7 +2,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import PIL.Image
 from openai import OpenAI
-from vlms import image_url
+
+from .vlms import image_url
 
 
 def create_visual_prompt(image: PIL.Image.Image, bounding_box):

@@ -5,27 +5,28 @@ import numpy as np
 import PIL.Image
 import segment_point_cloud
 import torch
-from agent_state import AgentState
-from clients import vlm_client
-from describe_objects import describe_objects
-from detect_objects import Detection
-from detect_objects import detect as detect_objects_2d
-from event_stream import (CodeActionEvent, ObjectSelectionDetectionResult,
-                          ObjectSelectionInitiation,
-                          ObjectSelectionPolicyCreation,
-                          ObjectSelectionPolicySelection, ReflectionEvent,
-                          VerbalFeedbackEvent, VisualPerceptionEvent)
-from lmp_planner import LanguageModelPlanner
-from lmp_scene_api_object import Object
-from memory_bank_v2 import Memory, MemoryKey, Retrieval
-from object_detection_utils import draw_set_of_marks
 from openai import OpenAI
-from panda import Panda
-from rotation_utils import vector2quat
 from scipy.spatial.transform import Rotation
-from select_bounding_box import select_bounding_box
-from select_object_v2 import format_object_detections
-from vlms import image_message
+
+from .agent_state import AgentState
+from .clients import vlm_client
+from .describe_objects import describe_objects
+from .detect_objects import Detection
+from .detect_objects import detect as detect_objects_2d
+from .event_stream import (CodeActionEvent, ObjectSelectionDetectionResult,
+                           ObjectSelectionInitiation,
+                           ObjectSelectionPolicyCreation,
+                           ObjectSelectionPolicySelection, ReflectionEvent,
+                           VerbalFeedbackEvent, VisualPerceptionEvent)
+from .lmp_planner import LanguageModelPlanner
+from .lmp_scene_api_object import Object
+from .memory_bank_v2 import Memory, MemoryKey, Retrieval
+from .object_detection_utils import draw_set_of_marks
+from .panda import Panda
+from .rotation_utils import vector2quat
+from .select_bounding_box import select_bounding_box
+from .select_object_v2 import format_object_detections
+from .vlms import image_message
 
 pcd_segmenter = segment_point_cloud.SamPointCloudSegmenter(render_2d_results=False)
 

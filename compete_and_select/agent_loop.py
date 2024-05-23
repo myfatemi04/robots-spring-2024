@@ -39,30 +39,33 @@ Information about which objects should be selected may span several steps.
 
 """
 
+import dotenv
+
+dotenv.load_dotenv()
+
 import os
 import pickle
 import sys
 import time
-from dataclasses import dataclass
-
-import dotenv
-import numpy as np
-from rotation_utils import vector2quat
-
-dotenv.load_dotenv()
 
 import matplotlib.pyplot as plt
+import numpy as np
 import PIL.Image
-from agent_state import AgentState
-from event_stream import (CodeActionEvent, EventStream, ExceptionEvent,
-                          ReflectionEvent, VerbalFeedbackEvent,
-                          VisualPerceptionEvent)
-from lmp_planner import (StatefulLanguageModelProgramExecutor,
-                         reason_and_generate_code)
-from lmp_scene_api import Human, Scene
-from memory_bank_v2 import MemoryBank
 from openai import OpenAI
-from vlms import image_message
+
+from .agent_state import AgentState
+from .config import Config
+from .event_stream import (CodeActionEvent, EventStream, ExceptionEvent,
+                           ReflectionEvent, VerbalFeedbackEvent,
+                           VisualPerceptionEvent)
+from .lmp_planner import (StatefulLanguageModelProgramExecutor,
+                          reason_and_generate_code)
+from .lmp_scene_api import Human, Robot, Scene
+from .memory_bank_v2 import MemoryBank
+from .perception.rgbd import RGBD
+from .perception.rgbd_asynchronous_tracker import RGBDAsynchronousTracker
+from .rotation_utils import vector2quat
+from .vlms import image_message
 
 with open("prompts/code_generation.md") as f:
     code_generation_prompt = f.read()
@@ -150,11 +153,6 @@ def create_vision_model_context(event_stream: EventStream, max_vision_events_to_
     return context
 
 def agent_loop():
-    from config import Config
-    from lmp_scene_api import Robot
-    from compete_and_select.perception.rgbd import RGBD
-    from rgbd_asynchronous_tracker import RGBDAsynchronousTracker
-
     event_stream = EventStream()
     memory_bank = MemoryBank()
     

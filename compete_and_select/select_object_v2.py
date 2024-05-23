@@ -6,12 +6,11 @@ from typing import Dict, List, Optional, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
-from clients import llm_client, vlm_client
-from detect_objects import Detection
-from memory_bank_v2 import Memory, MemoryBank, MemoryKey, Retrieval
-from memory_short_term import WorkingMemory
-from object_detection_utils import draw_set_of_marks
-from vlms import image_message
+
+from .clients import vlm_client
+from .detect_objects import Detection
+from .memory_bank_v2 import Retrieval
+from .object_detection_utils import draw_set_of_marks
 
 
 def parse_likelihood_response(response) -> Tuple[Optional[str], Dict[int, str]]:
@@ -71,7 +70,7 @@ def format_object_detections(detections: List[Detection], descriptions: List[str
     
     return prompt_string
 
-def get_human_feedback_for_selection(base_rgb_image, selected_object_id, working_memory: WorkingMemory, detections_2d: List[Detection]):
+def get_human_feedback_for_selection(base_rgb_image, selected_object_id, detections_2d: List[Detection]):
     """
     Use human feedback to calculate rewards for each object
      * We should try to generalize as much as possible, so that less human feedback is necessary as time goes on

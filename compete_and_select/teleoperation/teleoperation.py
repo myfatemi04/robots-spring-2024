@@ -108,8 +108,8 @@ class TeleoperationInterface:
         self.device = device
 
         rotation_bias = Rotation.from_matrix(np.array([
+            [np.sqrt(2)/2, -np.sqrt(2)/2, 0],
             [np.sqrt(2)/2, np.sqrt(2)/2, 0],
-            [-np.sqrt(2)/2, np.sqrt(2)/2, 0],
             [0, 0, 1]
         ]))
         self.rotation_bias = rotation_bias.as_quat()

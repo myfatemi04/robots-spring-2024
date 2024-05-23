@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 from matplotlib.widgets import RectangleSelector
 
+
 def select_bounding_box(image):
     plt.rcParams['figure.figsize'] = (20, 10)
 

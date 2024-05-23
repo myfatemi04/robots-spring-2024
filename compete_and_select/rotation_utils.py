@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.spatial.transform import Rotation
 
+
 def vector2quat(claw, right=None):
     claw = claw / np.linalg.norm(claw)
     right = right / np.linalg.norm(right)

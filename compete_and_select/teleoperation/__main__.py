@@ -2,8 +2,8 @@ import os
 import pickle
 import sys
 import time
-from matplotlib import pyplot as plt
 
+from matplotlib import pyplot as plt
 from polymetis import GripperInterface, RobotInterface
 
 from ..perception.rgbd import RGBD
