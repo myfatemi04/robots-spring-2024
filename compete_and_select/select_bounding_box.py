@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 from matplotlib.widgets import RectangleSelector
 
 
-def select_bounding_box(image):
+def select_bounding_box(image, prompt="Select a bounding box"):
     plt.rcParams['figure.figsize'] = (20, 10)
 
     def line_select_callback(eclick, erelease):
@@ -32,6 +32,7 @@ def select_bounding_box(image):
                                         minspanx=5, minspany=5,
                                         spancoords='pixels',
                                         interactive=True)
+    plt.title(prompt)
     plt.connect('key_press_event', toggle_selector)
     plt.imshow(image)
     plt.show()
