@@ -15,7 +15,7 @@ We construct a chat history using the system prompt and prev. observations
 along with a notion of the task at hand
 '''
 
-with open("prompts/code_generation.md") as f:
+with open("./compete_and_select/prompts/code_generation.md") as f:
     code_generation_prompt = f.read()
 
 def reason_and_generate_code(context, client: OpenAI, model='gpt-4-vision-preview'):

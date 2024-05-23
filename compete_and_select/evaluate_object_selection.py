@@ -15,7 +15,7 @@ import os
 import torch
 from torch.nn.functional import interpolate
 import numpy as np
-from .standalone_compete_and_select import select_with_vlm
+from .standalone_compete_and_select import select_with_vlm, describe_objects
 
 slug_labels = ['blue_mug', 'white_mug', 'green_coffee_cup', 'white_plastic_cup', 'uva_football_cup', 'green_cup']
 
@@ -105,18 +105,43 @@ def mask_iou(m1, m2):
     return (m1 & m2).sum() / (m1 | m2).sum()
 
 # cache the results to preserve credits.
-def generate_vlm_results(image, detections_for_file, allow_descriptions=True):
+def generate_vlm_results__(image, detections_for_file, allow_descriptions=True):
     vlm_outputs = []
     
     for detection_group in detections_for_file:
         print("Running on detection group:", detection_group['label'])
         bboxes = [det['bbox'] for det in detection_group['detections']]
+        
+        if allow_descriptions:
+            descriptions = describe_objects(image, bounding_boxes)
+        else:
+            descriptions = None
+        
         # has "reasoning", "logits", and "response" keys
         # returns a list of logits, corresponding to bboxes.
-        vlm_output = select_with_vlm(image, bboxes, detection_group['natural_language_label'], allow_descriptions)
+        vlm_output = select_with_vlm(image, bboxes, detection_group['natural_language_label'], descriptions)
         vlm_outputs.append(vlm_output)
         
     return vlm_outputs
+
+def generate_vlm_results(image, detections_for_file, allow_descriptions=True):
+    from concurrent.futures import ThreadPoolExecutor
+    
+    def inner(detection_group):
+        print("Running on detection group:", detection_group['label'])
+        bboxes = [det['bbox'] for det in detection_group['detections']]
+        
+        if allow_descriptions:
+            descriptions = describe_objects(image, bounding_boxes)
+        else:
+            descriptions = None
+        
+        # has "reasoning", "logits", and "response" keys
+        # returns a list of logits, corresponding to bboxes.
+        return select_with_vlm(image, bboxes, detection_group['natural_language_label'], descriptions)
+    
+    with ThreadPoolExecutor() as ex:
+        return list(ex.map(inner, detections_for_file))
 
 def obtain_vlm_results(allow_descriptions):
     # may use the cache. REQUIRES: owlv2_direct.pkl
@@ -135,7 +160,7 @@ def obtain_vlm_results(allow_descriptions):
     for filename in sorted(expected_per_img.keys()):
         print("Opening", filename, "...")
         full_filename = os.path.join(folder, filename)
-        image = PIL.Image.open(full_filename)
+        image = PIL.Image.open(full_filename).convert("RGB")
         detections_for_file = detections[filename]
         generations[filename] = generate_vlm_results(image, detections_for_file, allow_descriptions)
         
@@ -150,6 +175,9 @@ def evaluate_detection_results():
     
     with open(os.path.join(folder, "detector_results/owlv2_direct.pkl"), "rb") as f:
         detections = pickle.load(f)
+        
+    with open(os.path.join(folder, "detector_results/owlv2_direct__vlm_outputs__yes_descriptions.pkl"), "rb") as f:
+        vlm_results_yes_descriptions = pickle.load(f)
       
     # This is a lot of I/O for not a lot of compute
     # with open(os.path.join(folder, "detector_results/clip_embeddings.pkl"), "rb") as f:
@@ -178,13 +206,20 @@ def evaluate_detection_results():
         # this contains all detections. not necessarily in the order of expected_for_file.
         detections_for_file = detections[filename]
         
+        vlm_results_yes_descriptions_for_file = vlm_results_yes_descriptions[filename]
+        
         for expected_label, target_mask in zip(expected_for_file, masks[filename]):
             text_embed = text_embeds[expected_label]
             
             print(expected_label)
             
             # check and see what the result was when we tried to detect this label
-            dets = [d for d in detections_for_file if d['label'] == expected_label][0]['detections']
+            index_in_detections = [i for i in range(len(detections_for_file)) if detections_for_file[i]['label'] == expected_label][0]
+            dets = detections_for_file[index_in_detections]['detections']
+            
+            vlm_pred_index = np.argmax(vlm_results_yes_descriptions_for_file[index_in_detections]['logits'])
+            best_det_vlm_pred = dets[vlm_pred_index]
+            iou_vlm = mask_iou(best_det_vlm_pred['mask'], target_mask)
             
             # take the score argmax
             best_det_owlv2_score = max(dets, key=lambda det: det['score'])
@@ -197,9 +232,9 @@ def evaluate_detection_results():
             best_det_clip_mapped_score = max(dets, key=lambda det: clip_embeds[det['mask']].mean(axis=0) @ text_embed)
             iou_clip_mapped = mask_iou(best_det_clip_mapped_score['mask'], target_mask)
             
-            print(f"IOU [owlv2]: {iou_owlv2:.2f}, IOU [clip_cropped]: {iou_clip_cropped:.2f}, IOU [clip_mapped]: {iou_clip_mapped:.2f}")
+            print(f"IOU[vlm]: {iou_vlm:.2f}, IOU [owlv2]: {iou_owlv2:.2f}, IOU [clip_cropped]: {iou_clip_cropped:.2f}, IOU [clip_mapped]: {iou_clip_mapped:.2f}")
         
 # generate_direct_owlv2()
 # generate_clip_embeddings()
-obtain_vlm_results(allow_descriptions=True)
-# evaluate_detection_results()
+# obtain_vlm_results(allow_descriptions=True)
+evaluate_detection_results()

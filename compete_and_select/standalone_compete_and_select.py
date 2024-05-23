@@ -1,6 +1,9 @@
-from typing import List, Tuple, Optional
-from object_detection_utils import draw_set_of_marks
+from typing import List, Tuple, Optional, Dict
+from .object_detection_utils import draw_set_of_marks
 from .describe_objects import describe_objects
+from .vlms import image_url
+from openai import OpenAI
+import numpy as np
 
 def parse_likelihood_response(response: str) -> Tuple[str, Dict[int, str]]:
     """
@@ -35,8 +38,9 @@ def parse_likelihood_response(response: str) -> Tuple[str, Dict[int, str]]:
 
 def format_object_detections(bboxes: List[Tuple[int, int, int, int]], descriptions: Optional[List[str]]): # , memories_per_object: List[List[Retrieval]]):
     prompt_string = 'Detections\n'
-    for i, detection in enumerate(detections):
-        center_x, center_y = detection.center
+    for i, bbox in enumerate(bboxes):
+        center_x = (bbox[0] + bbox[2]) / 2
+        center_y = (bbox[1] + bbox[3]) / 2
         
         prompt_string += f"Object ({i + 1})\nPixel location: ({center_x:.0f}, {center_y:.0f})\n"
         if descriptions is not None:
@@ -54,6 +58,8 @@ def get_selection_policy(context: list):
     Scope of this function:
      - Given an input state, output a policy for which objects to select
     """
+    
+    vlm_client = OpenAI()
 
     response = vlm_client.chat.completions.create(
         model='gpt-4-vision-preview',
@@ -64,7 +70,7 @@ def get_selection_policy(context: list):
     print("Created object selection policy:")
     print(response)
 
-    reasoning, choices, raw_response = parse_likelihood_response(response)
+    reasoning, choices = parse_likelihood_response(response)
 
     # get logits
     logits = np.zeros(max(choices.keys()))
@@ -80,13 +86,12 @@ def get_selection_policy(context: list):
 
     return (reasoning, logits, response)
 
-def select_with_vlm(image, bounding_boxes, target_object, allow_descriptions=True):
+def select_with_vlm(image, bounding_boxes, target_object, descriptions):
     # given a set of detections, determine which is the most likely.
     # (1) describes the objects with a VLM
     # (2) puts the resulting objects into a text description
     
-    descriptions = describe_objects(image, bounding_boxes)
-    object_detections_string = format_object_detections(detections, descriptions, retrievals)
+    object_detections_string = format_object_detections(bounding_boxes, descriptions) # , retrievals)
     
     annotated_image = draw_set_of_marks(image, bounding_boxes)
 
@@ -119,7 +124,7 @@ filtered to be in the reachable zone of the robot.
         }
     ]
     
-    reasoning, logits, response = get_selection_policy(*context)
+    reasoning, logits, response = get_selection_policy(context)
     
     return {
         "reasoning": reasoning,

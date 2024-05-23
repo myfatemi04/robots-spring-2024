@@ -1,6 +1,7 @@
 import numpy as np
 import PIL.Image
 import torch
+from torch.nn.functional import interpolate
 from matplotlib import pyplot as plt
 from transformers import CLIPProcessor
 from transformers.models.clip.modeling_clip import (
