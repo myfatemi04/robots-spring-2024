@@ -86,6 +86,11 @@ def detect_grasps_z_axis(voxel_occupancy, voxel_size, gripper_width, max_alpha, 
 def detect_grasps(object_points, object_point_colors, voxel_size=0.005, min_points_in_voxel=2, gripper_width=0.08, max_alpha=15, hop_size=1, window_size=2, top_k_per_angle=5, show_rotated_voxel_grids=False):
     grasps = []
 
+    # take only the top 0.035m of object points to ensure that the gripper can reach
+    gripper_depth = 0.035
+    top_z = max(object_points[:, 2])
+    object_points_chopped = object_points[object_points[:, 2] >= top_z - gripper_depth]
+
     for i in range(8):
         rotate_angle = np.pi / 8 * i
         z_inv = np.array([np.cos(rotate_angle), np.sin(rotate_angle), 0])
@@ -94,7 +99,7 @@ def detect_grasps(object_points, object_point_colors, voxel_size=0.005, min_poin
         rotation_matrix = np.array([x_inv, y_inv, z_inv])
 
         # apply rotation matrix to points
-        rotated_object_points = object_points @ rotation_matrix.T
+        rotated_object_points = object_points_chopped @ rotation_matrix.T
         lower_bound_, upper_bound_ = np.min(rotated_object_points, axis=0), np.max(rotated_object_points, axis=0)
         voxels_ = voxelize(rotated_object_points, object_point_colors, (lower_bound_, upper_bound_), voxel_size)
 

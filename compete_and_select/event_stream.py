@@ -1,11 +1,14 @@
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, List, Optional
 
 import numpy as np
 import PIL.Image
+
 from .detect_objects import Detection
 from .lmp_scene_api_object import Object
+from .vlms import image_message
 
 
 class EventType(Enum):
@@ -91,3 +94,31 @@ class ObjectSelectionPolicyCreation(Event):
 class ObjectSelectionPolicySelection(Event):
     selected_object_id: int
     selected_object: Object
+
+def serialize_event(event: Event):
+    if isinstance(event, VisualPerceptionEvent):
+        return {
+            'role': 'system',
+            'content': [
+                {'type': 'text', 'text': "Here is what you currently see."},
+                image_message(event.imgs[0]), # type: ignore
+            ]
+        }
+    elif isinstance(event, ReflectionEvent):
+        return {
+            'role': 'assistant',
+            'content': f"Reflection: {event.reflection}"
+        }
+    elif isinstance(event, VerbalFeedbackEvent):
+        if event.prompt:
+            return {'role': 'assistant', 'content': f'{event.prompt}'}
+        return {'role': 'user', 'content': f'{event.text}'}
+    elif isinstance(event, CodeActionEvent):
+        return {'role': 'assistant', 'content': event.raw_content}
+    elif isinstance(event, ExceptionEvent):
+        return {
+            'role': 'system',
+            'content': f"Exception ({event.exception_type}: {event.text}"
+        }
+    else:
+        print("<WARN> Unhandled event type:", event, file=sys.stderr)

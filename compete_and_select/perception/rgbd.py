@@ -1,3 +1,4 @@
+import os
 import sys
 
 import cv2
@@ -149,3 +150,42 @@ def get_normal_map(point_cloud_image):
     result[bad_points] = 0
 
     return result
+
+def obtain_calibration(rgbd: RGBD, tracker, checkpoint_path="calibrations.pkl"):
+    import pickle
+
+    import matplotlib.pyplot as plt
+    
+    if not os.path.exists(checkpoint_path):
+        has_pcd = False
+        while not has_pcd:
+            # uses a threading.Event to wait for next frame
+            if tracker is not None:
+                (rgbs, pcds, _) = tracker.next()
+                for i in range(len(rgbs)):
+                    tracker.rgbd.try_calibrate(i, rgbs[i])
+            else:
+                rgbs, pcds = rgbd.capture()
+                for i in range(len(rgbs)):
+                    rgbd.try_calibrate(i, rgbs[i])
+                    
+            has_pcd = all(pcd is not None for pcd in pcds)
+            plt.title("Camera 1")
+            plt.imshow(rgbs[1])
+            plt.pause(0.05)
+
+        # save calibration
+        calibrations = [rgbd.cameras[0].extrinsic_matrix, rgbd.cameras[1].extrinsic_matrix]
+        with open(checkpoint_path, "wb") as f:
+            pickle.dump(calibrations, f)
+        
+        print("Saved calibrations.")
+    else:
+        with open(checkpoint_path, "rb") as f:
+            calibrations = pickle.load(f)
+            for i, calibration in enumerate(calibrations[:len(rgbd.cameras)]):
+                rgbd.cameras[i].extrinsic_matrix = calibration
+
+        print("Restored calibrations.")
+
+

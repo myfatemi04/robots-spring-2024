@@ -57,18 +57,16 @@ from .agent_state import AgentState
 from .config import Config
 from .event_stream import (CodeActionEvent, EventStream, ExceptionEvent,
                            ReflectionEvent, VerbalFeedbackEvent,
-                           VisualPerceptionEvent)
+                           VisualPerceptionEvent, serialize_event)
 from .lmp_planner import (StatefulLanguageModelProgramExecutor,
                           reason_and_generate_code)
 from .lmp_scene_api import Human, Robot, Scene
 from .memory_bank_v2 import MemoryBank
-from .perception.rgbd import RGBD
-from .perception.rgbd_asynchronous_tracker import RGBDAsynchronousTracker
+from .perception.rgbd import RGBD, obtain_calibration
+# from .perception.rgbd_asynchronous_tracker import RGBDAsynchronousTracker
 from .rotation_utils import vector2quat
 from .vlms import image_message
 
-with open("prompts/code_generation.md") as f:
-    code_generation_prompt = f.read()
 
 def create_primary_context(event_stream: EventStream, image_observation_overwrite=None):
     last_vision_event = [i for i, event in enumerate(event_stream.events) if isinstance(event, VisualPerceptionEvent)][-1]
@@ -88,25 +86,8 @@ def create_primary_context(event_stream: EventStream, image_observation_overwrit
                         image_message(image_observation_overwrite or event.imgs[0]), # type: ignore
                     ]
                 })
-        elif isinstance(event, ReflectionEvent):
-            context.append({
-                'role': 'assistant',
-                'content': f"Reflection: {event.reflection}"
-            })
-        elif isinstance(event, VerbalFeedbackEvent):
-            if event.prompt:
-                context.append({'role': 'assistant', 'content': f'{event.prompt}'})
-            context.append({'role': 'user', 'content': f'{event.text}'})
-        elif isinstance(event, CodeActionEvent):
-            context.append({
-                'role': 'assistant',
-                'content': event.raw_content,
-            })
-        elif isinstance(event, ExceptionEvent):
-            context.append({
-                'role': 'system',
-                'content': f"Exception ({event.exception_type}): {event.text}"
-            })
+        else:
+            context.append(serialize_event(event))
     return context
 
 def create_vision_model_context(event_stream: EventStream, max_vision_events_to_include=1):
@@ -131,25 +112,8 @@ def create_vision_model_context(event_stream: EventStream, max_vision_events_to_
                     'role': 'system',
                     'content': '<Prior observation>'
                 })
-        elif isinstance(event, ReflectionEvent):
-            context.append({
-                'role': 'assistant',
-                'content': f"Reflection: {event.reflection}"
-            })
-        elif isinstance(event, VerbalFeedbackEvent):
-            if event.prompt:
-                context.append({'role': 'assistant', 'content': f'{event.prompt}'})
-            context.append({'role': 'user', 'content': f'{event.text}'})
-        elif isinstance(event, CodeActionEvent):
-            context.append({
-                'role': 'assistant',
-                'content': event.raw_content,
-            })
-        elif isinstance(event, ExceptionEvent):
-            context.append({
-                'role': 'system',
-                'content': f"Exception ({event.exception_type}): {event.text}"
-            })
+        else:
+            context.append(serialize_event(event))
     return context
 
 def agent_loop():
@@ -167,10 +131,11 @@ def agent_loop():
     # during each capture.
     rgbd = RGBD(num_cameras=1, auto_calibrate=False)
     # rgbd = RGBD(num_cameras=2, camera_ids=['000259521012', '000243521012'], auto_calibrate=False)
-    # allows frames to be tracked even when work is being done on the main thread.
-    # this should increase the quality of object tracking.
-    tracker = RGBDAsynchronousTracker(rgbd, disable_tracking=not config.use_xmem)
-    tracker.open()
+    
+    # used for XMem (video segmentation tracking). may be unnecessary...
+    # tracker = RGBDAsynchronousTracker(rgbd, disable_tracking=not config.use_xmem)
+    # tracker.open()
+    tracker = None
 
     ### Initialize agent_state. ###
     agent_state = AgentState(event_stream, memory_bank, tracker, config)
@@ -188,35 +153,8 @@ def agent_loop():
 
     input("> Ready. >")
 
-    # Wait for calibration
-
-    if not os.path.exists("calibrations.pkl"):
-        has_pcd = False
-        while not has_pcd:
-            # uses a threading.Event to wait for next frame
-            (rgbs, pcds, _) = tracker.next()
-            for i in range(len(rgbs)):
-                tracker.rgbd.try_calibrate(i, rgbs[i])
-            # rgbs, pcds = rgbd.capture()
-            # print("Calibrated:", calibrated)
-            has_pcd = all(pcd is not None for pcd in pcds)
-            plt.title("Camera 1")
-            plt.imshow(rgbs[1])
-            plt.pause(0.05)
-
-        # save calibration
-        calibrations = [rgbd.cameras[0].extrinsic_matrix, rgbd.cameras[1].extrinsic_matrix]
-        with open("calibrations.pkl", "wb") as f:
-            pickle.dump(calibrations, f)
-        
-        print("Saved calibrations.")
-    else:
-        with open("calibrations.pkl", "rb") as f:
-            calibrations = pickle.load(f)
-            for i, calibration in enumerate(calibrations[:len(rgbd.cameras)]):
-                rgbd.cameras[i].extrinsic_matrix = calibration
-
-        print("Restored calibrations.")
+    # Wait for calibration (blocking operation)
+    obtain_calibration(rgbd, tracker, 'calibrations.pkl')
 
     event_stream.write(VerbalFeedbackEvent(input("Instructions for robot: ")))
 
