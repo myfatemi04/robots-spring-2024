@@ -4,6 +4,7 @@ from .describe_objects import describe_objects
 from .vlms import image_url
 from openai import OpenAI
 import numpy as np
+import os
 
 def parse_likelihood_response(response: str) -> Tuple[str, Dict[int, str]]:
     """
@@ -29,10 +30,19 @@ def parse_likelihood_response(response: str) -> Tuple[str, Dict[int, str]]:
     for line in choices_str.strip().split('\n'):
         if ':' in line:
             obj_num, choice = line.split(':')
-            choices[int(obj_num.strip())] = choice.strip()
+            try:
+                choices[int(obj_num.strip())] = choice.strip()
+            except:
+                print("WARN: Skipping line:", line, "in choices_str:")
+                print(choices_str)
+                pass
         else:
             # break at the first line without an object.
             break
+            
+    if len(choices) == 0:
+        print("No choices found:")
+        print(response)
 
     return (reasoning, choices)
 
@@ -60,11 +70,21 @@ def get_selection_policy(context: list):
     """
     
     vlm_client = OpenAI()
-
-    response = vlm_client.chat.completions.create(
-        model='gpt-4-vision-preview',
-        messages=[*context]
-    ).choices[0].message.content
+    
+    if not os.path.exists("lm_request_cache"):
+        os.mkdir("lm_request_cache")
+    hsh = hash(str(context))
+    if os.path.exists(f"lm_request_cache/{hsh}.txt"):
+        with open(f"lm_request_cache/{hsh}.txt") as f:
+            response = f.read()
+            print("[cache hit]")
+    else:
+        response = vlm_client.chat.completions.create(
+            model='gpt-4-vision-preview',
+            messages=[*context]
+        ).choices[0].message.content
+        with open(f"lm_request_cache/{hsh}.txt", "w") as f:
+            f.write(response)
     assert response is not None
 
     print("Created object selection policy:")
@@ -86,14 +106,29 @@ def get_selection_policy(context: list):
 
     return (reasoning, logits, response)
 
-def select_with_vlm(image, bounding_boxes, target_object, descriptions):
+import threading
+
+SOM_lock = threading.Lock()
+SOM_counter = 0
+
+def select_with_vlm(image, bounding_boxes, target_object, descriptions, dry_run):
+    global SOM_counter
+    
     # given a set of detections, determine which is the most likely.
     # (1) describes the objects with a VLM
     # (2) puts the resulting objects into a text description
     
     object_detections_string = format_object_detections(bounding_boxes, descriptions) # , retrievals)
     
+    # used to prevent multiple threads from editing the matplotlib figure
+    SOM_lock.acquire()
     annotated_image = draw_set_of_marks(image, bounding_boxes)
+    annotated_image.save(f"plots/set_of_marks__{SOM_counter:03d}.png")
+    SOM_counter += 1
+    SOM_lock.release()
+    
+    if dry_run:
+        return {"reasoning": None, "logits": None, "response": None}
 
     context = [
         {

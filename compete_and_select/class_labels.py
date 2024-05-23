@@ -34,7 +34,7 @@ class_labels = {
             'paprika',
             'whole_black_peppercorns',
             'onion_powder',
-            'dark_chili_powder'
+            'chili_powder'
         ],
         'natural_language_labels': [
             'garlic powder',
@@ -43,7 +43,7 @@ class_labels = {
             'paprika',
             'whole black peppercorns',
             'onion powder',
-            'dark chili powder'
+            'chili powder'
         ]
     }
 }

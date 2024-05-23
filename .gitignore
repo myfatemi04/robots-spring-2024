@@ -31,3 +31,5 @@ k4aviewer.err
 .env
 
 **/.DS_Store
+lm_request_cache
+plots
