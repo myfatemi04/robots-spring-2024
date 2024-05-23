@@ -31,13 +31,13 @@ def extract_classes(filename, all_classes):
         classes = [cls for cls in all_classes if cls != excluded_class]
     else:
         classes = all_classes
-    return classes
+    return sorted(classes)
 
 def load_images_and_classes(prefix_dir):
     filenames = sorted(os.listdir(prefix_dir))
     # filter out a labels.json if it's in there, or potentially a masks.pkl.
     filenames = [filename for filename in filenames if '.json' not in filename and '.pkl' not in filename]
-    all_classes = get_all_classes(filenames)
+    all_classes = sorted(get_all_classes(filenames))
     image_class_tuples = []
     for filename in filenames:
         # Load the image
@@ -51,6 +51,14 @@ def load_images_and_classes(prefix_dir):
 def label_bounding_boxes(prefix_dir):
     # Execute the function with the list of filenames
     image_class_tuples = load_images_and_classes(prefix_dir)
+
+    # Save the list of expected labels per image
+    expected = {
+        filename: classes
+        for filename, _, classes in image_class_tuples
+    }
+    with open(os.path.join(prefix_dir, 'expected.json'), 'w') as f:
+        json.dump(expected, f)
 
     all_labels = {filename: None for filename, _, _ in image_class_tuples}
 
@@ -77,6 +85,8 @@ def generate_masks_from_bounding_boxes(prefix_dir, labels):
         print("Showing masks for filename", filename)
         image = Image.open(os.path.join(prefix_dir, filename))
 
+        labels = sorted(labels, key=lambda x: x[0])
+
         # should be a Boolean ndarray
         masks = boxes_to_masks(image, [bbox for _, bbox in labels])
         for (cls, bbox), mask in zip(labels, masks):
@@ -102,16 +112,23 @@ if __name__ == "__main__":
     # 1. Generate bounding boxes
     # 2. Generate masks
 
-    prefix_dir = './photos/solidbg/cups'
+    prefix_dir = './photos/solidbg/condiments'
 
-    # main(prefix_dir)
+    from class_labels import class_labels
+    slug_labels = class_labels['condiments']['slug_labels']
+    natural_language_labels = class_labels['condiments']['natural_language_labels']
+
+    label_bounding_boxes(prefix_dir)
 
     json_path = os.path.join(prefix_dir, 'labels.json')
     with open(json_path, 'r') as f:
         labels = json.load(f)
 
+    print("All labels:")
+    print([cls for (cls, bbox) in labels['000_all.png']])
+
     generate_masks_from_bounding_boxes(prefix_dir, labels)
-    
+
     # print(
     #     select_bounding_box(
     #         Image.open('./photos/solidbg/cups/000_all.png'),
