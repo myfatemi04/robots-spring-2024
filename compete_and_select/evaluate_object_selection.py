@@ -19,18 +19,6 @@ import numpy as np
 from .standalone_compete_and_select import select_with_vlm, describe_objects
 from .class_labels import class_labels
 
-gp = 'condiments'
-natural_language_labels = class_labels[gp]['natural_language_labels']
-slug_labels = class_labels[gp]['slug_labels']
-
-folder = './photos/solidbg/' + gp
-
-with open(os.path.join(folder, "expected.json")) as f:
-    expected_per_img = json.load(f)
-    
-with open(os.path.join(folder, "masks.pkl"), "rb") as f:
-    masks = pickle.load(f)
-
 def obtain_detector_results_folder(folder):
     detector_results_folder = os.path.join(folder, "detector_results")
     if not os.path.exists(detector_results_folder):
@@ -106,7 +94,6 @@ def generate_vlm_results(image, detections_for_file, allow_descriptions, used_co
     
     if dry_run:
         print("==> Dry Run <== (Only for debugging, not making LM calls)")
-        describe_objects = lambda *_: None
     
     if used_coarse_detections and allow_descriptions and not dry_run:
         bboxes = [d['bbox'] for d in detections_for_file[0]['detections']]
@@ -250,7 +237,20 @@ def evaluate_detection_results():
             iou_clip_mapped = mask_iou(best_det_clip_mapped_score['mask'], target_mask)
             
             print(f"IOU[c+s]: {iou_vlm_yes:.2f}, IOU[som]: {iou_vlm_no:.2f}, IOU [owlv2]: {iou_owlv2:.2f}, IOU [clip_cropped]: {iou_clip_cropped:.2f}, IOU [clip_mapped]: {iou_clip_mapped:.2f}")
-        
-# generate_direct_owlv2(coarse_label='spice container')
-obtain_vlm_results(allow_descriptions=False, used_coarse_detections=True, dry_run=True)
+            
+gp = 'cups'
+natural_language_labels = class_labels[gp]['natural_language_labels']
+slug_labels = class_labels[gp]['slug_labels']
+
+folder = './photos/solidbg/' + gp
+
+with open(os.path.join(folder, "expected.json")) as f:
+    expected_per_img = json.load(f)
+    
+with open(os.path.join(folder, "masks.pkl"), "rb") as f:
+    masks = pickle.load(f)
+
+# generate_direct_owlv2(coarse_label='spoon')
+obtain_vlm_results(allow_descriptions=True, used_coarse_detections=True, dry_run=False)
+obtain_vlm_results(allow_descriptions=False, used_coarse_detections=True, dry_run=False)
 evaluate_detection_results()
