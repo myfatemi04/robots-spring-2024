@@ -64,22 +64,24 @@ class RealsenseWrapper:
         aligned_frames = self.align.process(frames)
         aligned_depth_frame = aligned_frames.get_depth_frame()
         color_frame = aligned_frames.get_color_frame()
+        color_image = np.asanyarray(color_frame.get_data())
+        color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB)
+        depth_image = np.asanyarray(aligned_depth_frame.get_data())
 
-        return (color_frame, aligned_depth_frame)
+        return (color_image, depth_image)
 
     def __del__(self):
         self.pipeline.stop()
 
 def show_realsense_stream():
     cam = RealsenseWrapper()
-    for color_frame, aligned_depth_frame in cam:
-        # Validate that both frames are valid
-        if not aligned_depth_frame or not color_frame:
-            continue
+    for color_image, depth_image in cam:
+        # # Validate that both frames are valid
+        # if not aligned_depth_frame or not color_frame:
+        #     continue
 
-        depth_image = np.asanyarray(aligned_depth_frame.get_data())
-        color_image = np.asanyarray(color_frame.get_data())
-        color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB)
+        # depth_image = np.asanyarray(aligned_depth_frame.get_data())
+        # color_image = np.asanyarray(color_frame.get_data())
 
         # blur the depth image
         depth_image = cv2.GaussianBlur(depth_image, (5, 5), 0)
