@@ -54,7 +54,7 @@ class Panda:
         pos, rotation = self.robot.get_ee_pose()
         return (pos - self.movement_bias, rotation)
 
-    def move_to(self, pos, orientation=None, **kwargs):
+    def move_to(self, pos, orientation=None, direct=False, **kwargs):
         if self.mock: return
         
         pos = torch.tensor(pos).float()
@@ -67,6 +67,10 @@ class Panda:
 
         (curr_x, curr_y, curr_z), curr_quat = self.robot.get_ee_pose()
         (des_x, des_y, des_z) = pos
+
+        if direct:
+            self.robot.move_to_ee_pose(pos + self.movement_bias, orientation, time_to_go=self.time_to_go, **kwargs)
+            return
 
         if des_z > curr_z:
             # if z moves up, then move by z and then by x,y
