@@ -29,7 +29,9 @@ class Panda:
         # ROBOT_CONTROL_X_BIAS = 0.08 # orig 0.18
         ROBOT_CONTROL_Y_BIAS = 0.0
         # ROBOT_CONTROL_Y_BIAS =  -0.021 # orig 0
-        ROBOT_CONTROL_Z_BIAS = 0.11184475 # 0.400 - (0.38415525) + 0.096
+        # so weird but this appears in RobotState.F_T_EE and when the URDF files do forward dynamics they apply this transform
+        ROBOT_CONTROL_Z_BIAS = 0.1034
+        # ROBOT_CONTROL_Z_BIAS = 0.11184475 # 0.400 - (0.38415525) + 0.096
         # ROBOT_CONTROL_Z_BIAS = 0.096 # orig 0.1
         self.movement_bias = torch.tensor([ROBOT_CONTROL_X_BIAS, ROBOT_CONTROL_Y_BIAS, ROBOT_CONTROL_Z_BIAS]).float()
         # self.rotation_bias = Rotation.from_quat(np.array([0, 0, math.sin(math.pi/2), math.cos(math.pi/2)]))
@@ -68,11 +70,13 @@ class Panda:
 
         if des_z > curr_z:
             # if z moves up, then move by z and then by x,y
-            self.robot.move_to_ee_pose(torch.tensor([0, 0, des_z - curr_z]), delta=True, time_to_go=self.time_to_go, **kwargs)
+            if abs(des_z - curr_z) != 0:
+                self.robot.move_to_ee_pose(torch.tensor([0, 0, des_z - curr_z]), delta=True, time_to_go=self.time_to_go, **kwargs)
             self.robot.move_to_ee_pose(pos + self.movement_bias, orientation, time_to_go=self.time_to_go, **kwargs)
         else:
             # z moves down; move by x, y and then by z
-            self.robot.move_to_ee_pose(torch.tensor([des_x - curr_x, des_y - curr_y, 0]), delta=True, time_to_go=self.time_to_go, **kwargs)
+            if abs(des_z - curr_z) != 0:
+                self.robot.move_to_ee_pose(torch.tensor([des_x - curr_x, des_y - curr_y, 0]), delta=True, time_to_go=self.time_to_go, **kwargs)
             self.robot.move_to_ee_pose(pos + self.movement_bias, orientation, time_to_go=self.time_to_go, **kwargs)
         
     def move_by(self, pos, **kwargs):
