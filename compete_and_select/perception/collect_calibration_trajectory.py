@@ -3,9 +3,10 @@ import time
 from typing import List
 
 import PIL.Image
-from compete_and_select.panda import Panda
-from compete_and_select.rotation_utils import vector2quat
-from compete_and_select.perception.rgbd import RGBD
+
+from ..panda import Panda
+from ..rotation_utils import vector2quat
+from .rgbd import RGBD
 
 # Go to a set of waypoints.
 # These should get 4 samples from each coordinate, in unique combinations,

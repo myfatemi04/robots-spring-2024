@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import PIL.Image
 
-from compete_and_select.apriltag import apriltag
+from ..apriltag import apriltag
 
 from .collect_calibration_trajectory import calibration_out_dir, waypoints
 
