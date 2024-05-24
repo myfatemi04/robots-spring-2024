@@ -39,6 +39,8 @@ Information about which objects should be selected may span several steps.
 
 """
 
+import traceback
+
 import dotenv
 
 dotenv.load_dotenv()
@@ -60,11 +62,12 @@ from .event_stream import (CodeActionEvent, EventStream, ExceptionEvent,
                            VisualPerceptionEvent, serialize_event)
 from .lmp_planner import (StatefulLanguageModelProgramExecutor,
                           reason_and_generate_code)
-from .lmp_scene_api import Human, Robot, Scene
+from .lmp_scene_api import Human, Robot, Scene, object_from_bounding_box
 from .memory_bank_v2 import MemoryBank
 from .perception.rgbd import RGBD, obtain_calibration
 # from .perception.rgbd_asynchronous_tracker import RGBDAsynchronousTracker
 from .rotation_utils import vector2quat
+from .select_bounding_box import select_bounding_box
 from .vlms import image_message
 
 
@@ -87,7 +90,9 @@ def create_primary_context(event_stream: EventStream, image_observation_overwrit
                     ]
                 })
         else:
-            context.append(serialize_event(event))
+            s = serialize_event(event)
+            if s:
+                context.append(s)
     return context
 
 def create_vision_model_context(event_stream: EventStream, max_vision_events_to_include=1):
@@ -113,7 +118,9 @@ def create_vision_model_context(event_stream: EventStream, max_vision_events_to_
                     'content': '<Prior observation>'
                 })
         else:
-            context.append(serialize_event(event))
+            s = serialize_event(event)
+            if s:
+                context.append(s)
     return context
 
 def agent_loop():
@@ -129,8 +136,8 @@ def agent_loop():
     # Calibration needs to be done in the main thread, so if we use the asynchronous
     # object tracker, we must disable calibration from being called automatically
     # during each capture.
-    rgbd = RGBD(num_cameras=1, auto_calibrate=False)
-    # rgbd = RGBD(num_cameras=2, camera_ids=['000259521012', '000243521012'], auto_calibrate=False)
+    # rgbd = RGBD(num_cameras=1, auto_calibrate=False)
+    rgbd = RGBD(num_cameras=2, camera_ids=['000259521012', '000243521012'], auto_calibrate=False)
     
     # used for XMem (video segmentation tracking). may be unnecessary...
     # tracker = RGBDAsynchronousTracker(rgbd, disable_tracking=not config.use_xmem)
@@ -154,14 +161,28 @@ def agent_loop():
     input("> Ready. >")
 
     # Wait for calibration (blocking operation)
-    obtain_calibration(rgbd, tracker, 'calibrations.pkl')
+    obtain_calibration(rgbd, tracker, 'calibrations.pkl', force_retry=False)
 
-    event_stream.write(VerbalFeedbackEvent(input("Instructions for robot: ")))
+    # event_stream.write(VerbalFeedbackEvent(input("Instructions for robot: ")))
 
     rgbs, pcds = rgbd.capture()
     imgs = [PIL.Image.fromarray(rgb) for rgb in rgbs]
     scene = Scene(imgs, pcds, agent_state)
     event_stream.write(VisualPerceptionEvent(scene.imgs, scene.pcds))
+
+    # for _ in range(10):
+    #     rgbs, pcds = rgbd.capture()
+    #     imgs = [PIL.Image.fromarray(rgb) for rgb in rgbs]
+    #     scene = Scene(imgs, pcds, agent_state)
+    #     event_stream.write(VisualPerceptionEvent(scene.imgs, scene.pcds))
+
+    #     obj = object_from_bounding_box(select_bounding_box(scene.imgs[0]), scene.imgs, scene.pcds)
+    #     gsps = obj.generate_grasps(True)
+    #     print(gsps)
+
+    #     robot.move_to_and_grasp(obj)
+
+    #     robot.move_to([0.4, 0, 0.4], orientation=vector2quat(claw=[0, 0, -1], right=[0, -1, 0]))
     
     try:
         for i in range(5):
@@ -204,13 +225,17 @@ def agent_loop():
 
             plt.pause(0.05)
 
+            width = robot.gripper.get_state().width
+            has_object_in_hand = (0.01 <= width <= 0.07)
+
             # Ask agent to reflect on the past two timesteps.
             ctx = create_vision_model_context(event_stream, max_vision_events_to_include=2)
             ctx.append({
                 "role": "system",
                 "content":
-                    "Reflect on your most recent action. What happened between the last two observations? "
-                    "Write a list of the changes that occurred, and then summarize the changes. "
+                    "Reflect on your most recent action. What happened between the last two observations? " +
+                    "Write a list of the changes that occurred, and then summarize the changes. " +
+                    ("You have successfully grasped the object you selected. " if has_object_in_hand else "You are not currently grasping any object. ") +
                     "Alternatively, if you encounter an error, consider asking the human to select an object."
             })
             # Now, we reflect on the difference between the previous and current action.
@@ -222,18 +247,20 @@ def agent_loop():
 
     except Exception as e:
         print("Error:", e)
+        traceback.print_exc()
     finally:
         robot.stop_grasp()
-        tracker.close()
+        if tracker is not None:
+            tracker.close()
 
         # Save the event stream
         i = 0
-        while os.path.exists(f"./memories/event_stream_{i}.pkl"):
+        while os.path.exists(f"./compete_and_select/memories/event_stream_{i}.pkl"):
             i += 1
         
         print("Run ID:", i)
 
-        with open(f"memories/event_stream_{i}.pkl", "wb") as f:
+        with open(f"./compete_and_select/memories/event_stream_{i}.pkl", "wb") as f:
             pickle.dump(event_stream, f)
 
 if __name__ == '__main__':

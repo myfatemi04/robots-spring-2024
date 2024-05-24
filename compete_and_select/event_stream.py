@@ -121,4 +121,4 @@ def serialize_event(event: Event):
             'content': f"Exception ({event.exception_type}: {event.text}"
         }
     else:
-        print("<WARN> Unhandled event type:", event, file=sys.stderr)
+        print("<WARN> Unhandled event type:", type(event).__name__, file=sys.stderr)

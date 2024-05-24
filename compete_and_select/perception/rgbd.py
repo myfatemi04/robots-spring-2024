@@ -78,6 +78,7 @@ class RGBD:
             detections = []
         # print(detections)
         if len(detections) == 1:
+            print("Detected AprilTag", camera_index)
             detection = detections[0]
             apriltag_image_points = detection['lb-rb-rt-lt']
             camera.infer_extrinsics(apriltag_image_points, self.apriltag_object_points)
@@ -151,12 +152,12 @@ def get_normal_map(point_cloud_image):
 
     return result
 
-def obtain_calibration(rgbd: RGBD, tracker, checkpoint_path="calibrations.pkl"):
+def obtain_calibration(rgbd: RGBD, tracker, checkpoint_path="calibrations.pkl", force_retry=False):
     import pickle
 
     import matplotlib.pyplot as plt
     
-    if not os.path.exists(checkpoint_path):
+    if not os.path.exists(checkpoint_path) or force_retry:
         has_pcd = False
         while not has_pcd:
             # uses a threading.Event to wait for next frame

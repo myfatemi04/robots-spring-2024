@@ -18,7 +18,7 @@ class Object:
 
     # at some point expose this to the model so it can generate grasps
     # and then rank them later
-    def generate_grasps(self):
+    def generate_grasps(self, show_rotated_voxel_grids=False):
         # will need to add some kind of collision detection here next
         grasps = detect_grasps(
             self.point_cloud,
@@ -30,6 +30,6 @@ class Object:
             hop_size=1,
             window_size=2,
             top_k_per_angle=5,
-            show_rotated_voxel_grids=False
+            show_rotated_voxel_grids=show_rotated_voxel_grids
         )
         return grasps

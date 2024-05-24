@@ -188,6 +188,8 @@ class Scene:
         # See if this overlaps with any previously detected objects.
         if self.agent_state.tracker is not None:
             tracking_mask = self.agent_state.tracker.prev_object_tracking_mask
+        else:
+            tracking_mask = None
 
         # For each of these detections, verify whether they fall in the reachable zone of the robot.
         for detection in detect_objects_2d(self.imgs[0], object_type):
@@ -255,10 +257,11 @@ class Scene:
         selected_object_id = np.argmax(logits)
         selected_object = objects[selected_object_id]
 
-        print(
-            "Object selection results in the following virtual object ID:",
-            self.agent_state.tracker.store([detections[selected_object_id].box])
-        )
+        if self.agent_state.tracker is not None:
+            print(
+                "Object selection results in the following virtual object ID:",
+                self.agent_state.tracker.store([detections[selected_object_id].box])
+            )
 
         self.agent_state.event_stream.write(ObjectSelectionPolicySelection(selected_object_id, selected_object))
 
