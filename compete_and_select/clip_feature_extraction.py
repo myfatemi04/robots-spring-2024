@@ -195,20 +195,34 @@ def get_text_embeds(texts):
         **clip_processor(text=texts, return_tensors='pt', padding=True).to(device)
     ).text_embeds.detach().cpu().numpy()
 
-def get_full_scale_clip_embeddings(image: PIL.Image.Image):
-    # create CLIP embedding map. round up to reach 14.
+def get_aligned_size(image: PIL.Image.Image):
+    # round up to reach 14.
     new_height = image.height + ((14 - (image.height % 14)) % 14)
     new_width = image.width + ((14 - (image.width % 14)) % 14)
+    return (new_width, new_height)
+
+def get_full_scale_clip_embedding_tiles(image: PIL.Image.Image):
+    # create CLIP embedding map.
+    (new_width, new_height) = get_aligned_size(image)
     new_image_blank = np.zeros((new_height, new_width, 3), dtype=np.uint8)
     new_image_blank[:image.height, :image.width] = np.array(image)
     new_image = PIL.Image.fromarray(new_image_blank)
     # extract CLIP embeddings from this (store the raw version)
     # this uses the MaskCLIP reparameterization trick
     _CLIP_pooled_embed, CLIP_embeds = get_clip_embeddings(new_image)
-    CLIP_embeds = torch.tensor(CLIP_embeds)
+    return CLIP_embeds
+
+def get_full_scale_clip_embeddings(image: PIL.Image.Image):
+    CLIP_embeds = torch.tensor(
+        get_full_scale_clip_embedding_tiles(image)
+    ).to(device)
+
     # (minibatch, channels, height, width), (output height, output width)
     # https://pytorch.org/docs/stable/generated/torch.nn.functional.interpolate.html
-    CLIP_embeds_interpolated = interpolate(CLIP_embeds.permute(2, 0, 1).unsqueeze(0), (new_height, new_width)).squeeze(0).permute(1, 2, 0).numpy()
+    CLIP_embeds_interpolated = interpolate(
+        CLIP_embeds.permute(2, 0, 1).unsqueeze(0),
+        (CLIP_embeds.shape[0] * 14, CLIP_embeds.shape[1] * 14)
+    ).squeeze(0).permute(1, 2, 0).detach().cpu().numpy()
     CLIP_embeds_interpolated = CLIP_embeds_interpolated[:image.height, :image.width]
     
     assert (

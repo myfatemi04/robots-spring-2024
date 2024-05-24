@@ -50,7 +50,7 @@ include a large dataset of objects and useful information for how to manipulate 
 # PaliGemma is the optimal method imo though. Could select objects from images.
 
 import PIL.Image
-import dense_clip_embeddings
+from .. import dense_clip_embeddings
 
 image = PIL.Image.open("sample_images/chargers.png")
 
