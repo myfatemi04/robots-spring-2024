@@ -65,6 +65,7 @@ def run_calibration():
     translation = translation.T[0]
 
     return (
+        rvec,
         rotation_matrix,
         translation,
     )
@@ -85,12 +86,11 @@ if __name__ == '__main__':
     intrinsics = np.array(intrinsics)
     distortions = np.array(distortions)
 
-    (rot, tra) = run_calibration()
+    (rvec, rmat, tvec) = run_calibration()
 
-    with open("./camera_000259521012_calibration.json", "w") as f:
+    with open(os.path.join(os.path.dirname(__file__), "calibration.json"), "w") as f:
         json.dump({
-            "intrinsics": intrinsics.tolist(),
-            "distortions": distortions.tolist(),
-            "rotation_matrix": rot.tolist(),
-            "translation": tra.tolist(),
+            "rvec": rvec.tolist(),
+            "rotation_matrix": rmat.tolist(),
+            "translation": tvec.tolist(),
         }, f)
