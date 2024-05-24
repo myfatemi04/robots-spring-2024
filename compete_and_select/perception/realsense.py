@@ -1,3 +1,5 @@
+import threading
+import time
 import cv2
 import pyrealsense2 as rs
 import numpy as np
@@ -53,25 +55,51 @@ class RealsenseWrapper:
     def __init__(self):
         pipeline, align, clipping_distance = init_pipeline()
         self.pipeline = pipeline
-        self.align = align
+        self.align_to_color = align
         self.clipping_distance = clipping_distance
-        
+        self.running = True
+        self.thread = threading.Thread(target=self._run)
+        self.thread.start()
+    
+    def _run(self):
+        while self.running:
+            # constantly loads the most recent frames to prevent the buffer from overflowing
+            # and causing problems
+            frames = self.pipeline.wait_for_frames()
+            frames.keep()
+
+            for i in range(10):
+                try:
+                    # aligned_frames = self.align_to_color.process(frames)
+                    aligned_frames = frames # whatever we ball
+                    aligned_depth_frame = aligned_frames.get_depth_frame()
+                    color_frame = aligned_frames.get_color_frame()
+
+                    if not aligned_depth_frame or not color_frame:
+                        break
+
+                    color_image = np.asanyarray(color_frame.get_data())
+                    color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB)
+                    depth_image = np.asanyarray(aligned_depth_frame.get_data())
+
+                    self.color_image = color_image
+                    self.depth_image = depth_image
+                    break
+                except:
+                    print("RealSense error.")
+                    if i == 9:
+                        raise
+
     def __iter__(self):
         return self
     
     def __next__(self):
-        frames = self.pipeline.wait_for_frames()
-        aligned_frames = self.align.process(frames)
-        aligned_depth_frame = aligned_frames.get_depth_frame()
-        color_frame = aligned_frames.get_color_frame()
-        color_image = np.asanyarray(color_frame.get_data())
-        color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB)
-        depth_image = np.asanyarray(aligned_depth_frame.get_data())
-
-        return (color_image, depth_image)
+        return self.color_image, self.depth_image
 
     def __del__(self):
         self.pipeline.stop()
+        self.running = False
+        self.thread.join()
 
 def show_realsense_stream():
     cam = RealsenseWrapper()
