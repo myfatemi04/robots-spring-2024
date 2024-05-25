@@ -8,10 +8,17 @@ from matplotlib import pyplot as plt
 from ..panda import Panda
 from ..rotation_utils import vector2quat
 from .rgbd import RGBD
+from ..util.set_axes_equal import set_axes_equal
 
 
 def run_demo():
     rgbd = RGBD(camera_ids=['000259521012', '000243521012'])
+
+    # PLOT_MODE = 'rgbd:1'
+    PLOT_MODE = 'point_cloud'
+    # This can slow down the program a lot.
+    # Applies for RGBD plot mode.
+    RGBD_MODE_PLOT_POINT_CLOUDS = True
 
     # Load the extrinsic information
     for i, camera_name in enumerate(['front', 'back_left']):
@@ -45,12 +52,6 @@ def run_demo():
     panda.stop_grasp()
     panda.start_grasp()
 
-    PLOT_MODE = 'rgbd:0'
-    # PLOT_MODE = 'point_cloud'
-    # This can slow down the program a lot.
-    # Applies for RGBD plot mode.
-    RGBD_MODE_PLOT_POINT_CLOUDS = True
-
     if PLOT_MODE.startswith('rgbd:'):
         camera_id = int(PLOT_MODE.split(':')[1])
 
@@ -74,7 +75,7 @@ def run_demo():
                 # Filter out invalid points.
                 depth_alpha = (~np.any(point_cloud_image == -10000, axis=-1)).astype(float)
                 depth_image = np.linalg.norm(point_cloud_image, axis=-1)
-                plt.imshow(depth_image, cmap='viridis', alpha=depth_alpha * 0.2, vmin=0, vmax=2)
+                plt.imshow(depth_image, cmap='viridis', alpha=depth_alpha * 0.5, vmin=0, vmax=2)
 
             plt.pause(0.05)
     elif PLOT_MODE == 'point_cloud':
@@ -84,27 +85,30 @@ def run_demo():
         # Filter to this box.
         min_coords = np.array([0, -1, 0])
         max_coords = np.array([1, 1, 1])
-        ax.set_xlim(min_coords[0], max_coords[0])
-        ax.set_ylim(min_coords[1], max_coords[1])
-        ax.set_zlim(min_coords[2], max_coords[2])
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.set_zlabel("Z")
         
         # Skip every N valid points.
+        # Should be approximately correct... assuming points are uniformly distributed where they
+        # are valid.
         decimate = 50
+        decimate_mask = np.zeros((720 * 1280), dtype=bool)
+        decimate_mask[::decimate] = True
+        decimate_mask = decimate_mask.reshape(720, 1280)
 
         while True:
             rgbs, pcds = rgbd.capture()
 
             ax.clear()
+            ax.set_xlim(min_coords[0], max_coords[0])
+            ax.set_ylim(min_coords[1], max_coords[1])
+            ax.set_zlim(min_coords[2], max_coords[2])
+            ax.set_xlabel("X")
+            ax.set_ylabel("Y")
+            ax.set_zlabel("Z")
             for i in range(len(rgbd.cameras)):
                 if i == 0: continue
 
                 valid_point_mask = np.all((pcds[i] >= min_coords) & (pcds[i] <= max_coords), axis=-1)
-                # Should be approximately correct... assuming points are uniformly distributed where they
-                # are valid.
-                valid_point_mask[::decimate] = False
+                valid_point_mask &= decimate_mask
 
                 # Draw the points.
                 ax.scatter(

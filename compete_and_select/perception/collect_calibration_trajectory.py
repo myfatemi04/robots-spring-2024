@@ -52,15 +52,23 @@ waypoints = {
         X=[0.3, 0.4, 0.5],
         Y=[0.1, -0.1, -0.3],
         Z=[0.1, 0.2, 0.3],
-    ))
-    # "back_left": create_waypoints(
-    #     x1=0.3,
-    #     x2=0.4,
-    #     y1=0.1,
-    #     y2=-0.3,
-    #     z1=0.1,
-    #     z2=0.3,
-    # )
+    )),
+    "back_right": create_waypoints(
+        x1=0.3,
+        x2=0.5,
+        y1=-0.1,
+        y2=0.3,
+        z1=0.1,
+        z2=0.3,
+    ),
+    "front_left": create_waypoints(
+        x1=0.3,
+        x2=0.5,
+        y1=-0.2,
+        y2=0.2,
+        z1=0.1,
+        z2=0.3,
+    ),
 }
 
 def collect_trajectory(preset):
@@ -85,10 +93,8 @@ def collect_trajectory(preset):
     # Hold the cube
     robot.start_grasp()
 
-    # Rotate to vertical
-    robot.move_to([0.4, 0.0, 0.1], vertical_rot, direct=True)
-
-    rgbd = RGBD(num_cameras=1)
+    camera_id = '000259521012' if 'front' in preset else '000243521012'
+    rgbd = RGBD(camera_ids=[camera_id])
 
     imgs: List[PIL.Image.Image] = []
     eef_poses = []
@@ -122,7 +128,8 @@ def collect_trajectory(preset):
         json.dump(eef_poses, f)
 
 if __name__ == "__main__":
-    preset = 'back_left'
+    preset = 'back_right'
+    camera_id = '000259521012' if 'front' in preset else '000243521012'
     calibration_out_dir = os.path.join(os.path.dirname(__file__), f"calibration_images_{preset}")
 
     if os.path.exists(calibration_out_dir):
@@ -130,3 +137,14 @@ if __name__ == "__main__":
         exit(1)
     else:
         collect_trajectory(preset)
+
+    from .run_calibration import run_calibration
+    from .camera_params import camera_params
+
+    (rvec, rmat, tvec) = run_calibration(preset, **camera_params[camera_id])
+    with open(os.path.join(os.path.dirname(__file__), f"extrinsics/{preset}_camera.json"), "w") as f:
+        json.dump({
+            "rvec": rvec.tolist(),
+            "rotation_matrix": rmat.tolist(),
+            "translation": tvec.tolist(),
+        }, f)

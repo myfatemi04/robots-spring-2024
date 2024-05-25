@@ -11,14 +11,14 @@ import apriltag
 
 sys.path.pop(0)
 
-def enumerate_cameras(num_cameras=2):
+def enumerate_cameras(min_cameras=2):
     import pyk4a  # type: ignore
 
-    if pyk4a.connected_device_count() < num_cameras:
-        print(f"Error: Not enough K4A devices connected (<{num_cameras}).")
+    if pyk4a.connected_device_count() < min_cameras:
+        print(f"Error: Not enough K4A devices connected (<{min_cameras}).")
         exit(1)
 
-    k4a_devices = [pyk4a.PyK4A(device_id=i) for i in range(num_cameras)]
+    k4a_devices = [pyk4a.PyK4A(device_id=i) for i in range(pyk4a.connected_device_count())]
     k4a_device_map = {}
     for device in k4a_devices:
         device.start()
@@ -32,6 +32,12 @@ def _color(capture):
 class RGBD:
     def __init__(self, num_cameras=None, camera_ids=None, auto_calibrate=False):
         """ camera_ids != None => selects specific cameras for capture """
+        if camera_ids is not None:
+            if num_cameras is not None:
+                assert len(camera_ids) == num_cameras, "num_cameras must match the number of camera_ids, if both are specified"
+            
+            num_cameras = len(camera_ids)
+        
         k4a_device_map = enumerate_cameras(num_cameras or 2)
 
         if camera_ids is None:
