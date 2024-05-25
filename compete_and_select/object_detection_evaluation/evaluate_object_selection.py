@@ -21,7 +21,7 @@ from ..clip_feature_extraction import (get_clip_embeddings,
 from ..detect_objects import detect
 from ..lmp_scene_api import get_selection_policy
 from ..sam import boxes_to_masks
-from ..standalone_compete_and_select import describe_objects, select_with_vlm
+from .standalone_compete_and_select import describe_objects, select_with_vlm
 
 
 def obtain_detector_results_folder(folder):

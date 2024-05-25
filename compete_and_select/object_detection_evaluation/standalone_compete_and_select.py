@@ -1,10 +1,12 @@
-from typing import List, Tuple, Optional, Dict
-from .object_detection_utils import draw_set_of_marks
-from .describe_objects import describe_objects
-from .vlms import image_url
-from openai import OpenAI
-import numpy as np
 import os
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+from openai import OpenAI
+
+from ..object_detection_utils import draw_set_of_marks
+from ..vlms import image_url
+
 
 def parse_likelihood_response(response: str) -> Tuple[str, Dict[int, str]]:
     """
