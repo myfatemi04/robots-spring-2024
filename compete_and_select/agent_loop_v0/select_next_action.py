@@ -1,5 +1,5 @@
-from detect_objects import draw_set_of_marks, detect
-from vlms import gpt4v_plusplus as gpt4v
+from ..object_detection.detect_objects import draw_set_of_marks, detect
+from ..vlms import gpt4v_plusplus as gpt4v
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 

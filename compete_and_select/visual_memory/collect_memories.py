@@ -1,14 +1,16 @@
 import json
 import os
 
-import detect_objects_few_shot as D
 import numpy as np
 import PIL.Image
 import PIL.ImageFilter
 import torch
-from detect_objects_few_shot import (ImageObservation, boxes_to_masks,
-                                     select_bounding_box)
 from matplotlib import pyplot as plt
+
+from ..object_detection import detect_objects_few_shot as D
+from ..object_detection.detect_objects_few_shot import (ImageObservation,
+                                                        boxes_to_masks,
+                                                        select_bounding_box)
 
 
 # Store memories to disk.

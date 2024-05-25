@@ -8,20 +8,16 @@ import json
 import os
 import pickle
 
-import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
-import torch
-from torch.nn.functional import interpolate
 
-from .class_labels import class_labels
-from ..clip_feature_extraction import (get_clip_embeddings,
-                                       get_full_scale_clip_embeddings,
+from ..clip_feature_extraction import (get_full_scale_clip_embeddings,
                                        get_text_embeds)
-from ..detect_objects import detect
-from ..lmp_scene_api import get_selection_policy
+from ..object_detection.detect_objects import detect
+from ..object_detection.describe_objects import describe_objects
 from ..sam import boxes_to_masks
-from .standalone_compete_and_select import describe_objects, select_with_vlm
+from .class_labels import class_labels
+from .standalone_compete_and_select import select_with_vlm
 
 
 def obtain_detector_results_folder(folder):

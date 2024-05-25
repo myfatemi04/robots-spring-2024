@@ -1,7 +1,7 @@
 import torch
 import PIL.Image
 from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
-from object_detection_utils import add_object_clip_embeddings, draw_set_of_marks
+from compete_and_select.object_detection.object_detection_utils import add_object_clip_embeddings, draw_set_of_marks
 
 model_id = "IDEA-Research/grounding-dino-base"
 device = "cuda" if torch.cuda.is_available() else "cpu"

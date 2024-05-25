@@ -1,7 +1,7 @@
 from matplotlib import pyplot as plt
 
-from ..detect_objects import detect
-from ..object_detection_utils import draw_set_of_marks
+from ..object_detection.detect_objects import detect
+from ..object_detection.object_detection_utils import draw_set_of_marks
 from ..panda import Panda
 from ..perception.rgbd import RGBD
 from ..segment_point_cloud import SamPointCloudSegmenter

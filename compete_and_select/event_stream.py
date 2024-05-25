@@ -6,8 +6,8 @@ from typing import Any, List, Optional
 import numpy as np
 import PIL.Image
 
-from .detect_objects import Detection
 from .lmp_scene_api_object import Object
+from .object_detection.detect_objects import Detection
 from .vlms import image_message
 
 

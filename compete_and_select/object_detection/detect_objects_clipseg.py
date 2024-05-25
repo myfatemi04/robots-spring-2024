@@ -1,9 +1,6 @@
-from PIL import Image
-import requests
-from transformers import AutoProcessor, CLIPSegForImageSegmentation
-import torchvision.transforms.functional as TF
-import numpy as np
 import torch
+import torchvision.transforms.functional as TF
+from transformers import AutoProcessor, CLIPSegForImageSegmentation
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 clipseg_processor = AutoProcessor.from_pretrained("CIDAS/clipseg-rd64-refined")

@@ -3,10 +3,15 @@ from concurrent.futures import ThreadPoolExecutor
 import PIL.Image
 from openai import OpenAI
 
-from .vlms import image_url
+from ..vlms import image_url
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
+moondream_model_id = "vikhyatk/moondream2"
+moondream_revision = "2024-05-20"
+moondream_model = AutoModelForCausalLM.from_pretrained(moondream_model_id, revision=moondream_revision, trust_remote_code=True)
+moondream_tokenizer = AutoTokenizer.from_pretrained(moondream_model_id)
 
-def create_visual_prompt(image: PIL.Image.Image, bounding_box):
+def create_padded_crop(image: PIL.Image.Image, bounding_box):
     # Slightly expand the bounding box.
     x1 = bounding_box[0] - 10
     y1 = bounding_box[1] - 10
@@ -19,7 +24,7 @@ def create_visual_prompt(image: PIL.Image.Image, bounding_box):
     return crop
 
 def describe_object(oai: OpenAI, image, bounding_box):
-    visual_prompt = create_visual_prompt(image, bounding_box)
+    visual_prompt = create_padded_crop(image, bounding_box)
     cmpl = oai.chat.completions.create(
         model='gpt-4o',
         messages=[
@@ -45,3 +50,15 @@ def describe_objects(image, bounding_boxes):
     with ThreadPoolExecutor() as executor:
         results = executor.map(lambda bounding_box: describe_object(oai, image, bounding_box), bounding_boxes)
     return list(results)
+
+def describe_object_oss(image, bounding_box):
+    item_image = create_padded_crop(image, bounding_box)
+
+
+def describe_objects_oss(image, bounding_boxes):
+    oai = OpenAI()
+    # Speed up this code with multithreading.
+    with ThreadPoolExecutor() as executor:
+        results = executor.map(lambda bounding_box: describe_object(oai, image, bounding_box), bounding_boxes)
+    return list(results)
+

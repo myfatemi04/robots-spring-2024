@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 from openai import OpenAI
 
-from ..object_detection_utils import draw_set_of_marks
+from ..object_detection.object_detection_utils import draw_set_of_marks
 from ..vlms import image_url
 
 

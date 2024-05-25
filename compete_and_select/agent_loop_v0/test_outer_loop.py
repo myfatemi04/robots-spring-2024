@@ -11,7 +11,7 @@ import torch
 # import cv2
 import apriltag
 
-from ..object_detection_utils import draw_set_of_marks
+from ..object_detection.object_detection_utils import draw_set_of_marks
 from ..perception.camera import Camera
 from .generate_action_candidates import generate_action_candidates
 from .select_next_action import select_next_action

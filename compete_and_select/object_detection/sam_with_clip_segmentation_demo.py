@@ -8,7 +8,7 @@ from transformers import pipeline
 from .. import RGBD
 from ..clip_feature_extraction import (get_full_scale_clip_embedding_tiles,
                                        get_text_embeds)
-from ..describe_objects import describe_objects
+from .describe_objects import describe_objects
 
 from torchvision.ops import masks_to_boxes
 

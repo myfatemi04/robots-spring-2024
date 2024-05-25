@@ -10,9 +10,9 @@ from scipy.spatial.transform import Rotation
 from . import segment_point_cloud
 from .agent_state import AgentState
 from .clients import vlm_client
-from .describe_objects import describe_objects
-from .detect_objects import Detection
-from .detect_objects import detect as detect_objects_2d
+from .object_detection.describe_objects import describe_objects
+from .object_detection.detect_objects import Detection
+from .object_detection.detect_objects import detect as detect_objects_2d
 from .event_stream import (CodeActionEvent, ObjectSelectionDetectionResult,
                            ObjectSelectionInitiation,
                            ObjectSelectionPolicyCreation,
@@ -20,7 +20,7 @@ from .event_stream import (CodeActionEvent, ObjectSelectionDetectionResult,
                            VerbalFeedbackEvent, VisualPerceptionEvent)
 from .lmp_planner import LanguageModelPlanner
 from .lmp_scene_api_object import Object
-from .object_detection_utils import draw_set_of_marks
+from .object_detection.object_detection_utils import draw_set_of_marks
 from .panda import Panda
 from .rotation_utils import vector2quat
 from .select_bounding_box import select_bounding_box

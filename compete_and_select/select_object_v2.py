@@ -8,8 +8,8 @@ import numpy as np
 import PIL.Image
 
 from .clients import vlm_client
-from .detect_objects import Detection
-from .object_detection_utils import draw_set_of_marks
+from .object_detection.detect_objects import Detection
+from .object_detection.object_detection_utils import draw_set_of_marks
 from .visual_memory.memory_bank_v2 import Retrieval
 
 
