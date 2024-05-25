@@ -125,7 +125,7 @@ def select_with_vlm(image, bounding_boxes, target_object, descriptions, dry_run)
     # used to prevent multiple threads from editing the matplotlib figure
     SOM_lock.acquire()
     annotated_image = draw_set_of_marks(image, bounding_boxes)
-    annotated_image.save(f"plots/set_of_marks__{SOM_counter:03d}.png")
+    # annotated_image.save(f"plots/set_of_marks__{SOM_counter:03d}.png")
     SOM_counter += 1
     SOM_lock.release()
     

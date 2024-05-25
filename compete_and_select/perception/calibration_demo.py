@@ -14,8 +14,8 @@ from ..util.set_axes_equal import set_axes_equal
 def run_demo():
     rgbd = RGBD(camera_ids=['000259521012', '000243521012'])
 
-    PLOT_MODE = 'rgbd:0'
-    # PLOT_MODE = 'point_cloud'
+    # PLOT_MODE = 'rgbd:0'
+    PLOT_MODE = 'point_cloud'
     # This can slow down the program a lot.
     # Applies for RGBD plot mode.
     RGBD_MODE_PLOT_POINT_CLOUDS = True

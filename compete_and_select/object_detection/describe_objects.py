@@ -4,7 +4,6 @@ import PIL.Image
 from openai import OpenAI
 
 from ..vlms import image_url
-from .llava16 import llava16_vqa
 
 def create_padded_crop(image: PIL.Image.Image, bounding_box):
     # Slightly expand the bounding box.
@@ -47,6 +46,8 @@ def describe_objects(image, bounding_boxes):
     return list(results)
 
 def describe_object_oss(image, bounding_box):
+    from .llava16 import llava16_vqa
+    
     item_image = create_padded_crop(image, bounding_box)
     result = llava16_vqa(item_image, "What is this object?") # type: ignore
     print("Result:", result)
