@@ -1,6 +1,6 @@
 from functools import cached_property
 
-from .detect_grasps import detect_grasps
+from .grasp_heuristic.detect_grasps import detect_grasps
 
 
 class Object:

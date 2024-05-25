@@ -2,7 +2,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .util.set_axes_equal import set_axes_equal
+from ..util.set_axes_equal import set_axes_equal
 from .voxelize import voxelize
 
 

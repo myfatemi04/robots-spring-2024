@@ -5,9 +5,9 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image as Image
-from detect_grasps import detect_grasps
+from compete_and_select.grasp_heuristic.detect_grasps import detect_grasps
 from compete_and_select.util.set_axes_equal import set_axes_equal
-from voxelize import voxelize
+from compete_and_select.grasp_heuristic.voxelize import voxelize
 
 
 def find_valid_point(pcd, xy, r=10):

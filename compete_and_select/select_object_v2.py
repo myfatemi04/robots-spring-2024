@@ -9,8 +9,8 @@ import PIL.Image
 
 from .clients import vlm_client
 from .detect_objects import Detection
-from .memory_bank_v2 import Retrieval
 from .object_detection_utils import draw_set_of_marks
+from .visual_memory.memory_bank_v2 import Retrieval
 
 
 def parse_likelihood_response(response) -> Tuple[Optional[str], Dict[int, str]]:

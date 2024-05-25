@@ -8,7 +8,7 @@ import PIL.Image as Image
 def main():
     import pyk4a
     sys.path.insert(0, "../")
-    from compete_and_select.perception.camera import Camera
+    from .camera import Camera
 
     num_cameras = 2
     if pyk4a.connected_device_count() < num_cameras:

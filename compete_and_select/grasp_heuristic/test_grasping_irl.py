@@ -6,15 +6,16 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
-import segment_point_cloud
 import torch
-from detect_grasps import detect_grasps
-from detect_objects import detect, draw_set_of_marks
 from panda import Panda
-from compete_and_select.perception.rgbd import RGBD
-from rotation_utils import vector2quat
 from scipy.spatial.transform import Rotation
 from transformers import SamModel, SamProcessor
+
+from .. import segment_point_cloud
+from ..detect_objects import detect, draw_set_of_marks
+from .detect_grasps import detect_grasps
+from ..perception.rgbd import RGBD
+from ..rotation_utils import vector2quat
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = SamModel.from_pretrained("facebook/sam-vit-base").to(device)
