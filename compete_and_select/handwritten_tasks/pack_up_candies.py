@@ -7,12 +7,11 @@ from ..perception.rgbd import RGBD
 from ..segment_point_cloud import SamPointCloudSegmenter
 
 robot = Panda('192.168.1.222')
-rgbd = RGBD.autoload([
-    ('000259521012', 'front_left'),
-    ('000243521012', 'back_right')
-])
+rgbd = RGBD.autoload('diagonal')
 seg = SamPointCloudSegmenter()
 
+robot.robot.go_home()
+robot.start_grasp()
 robot.stop_grasp()
 
 cup = None
@@ -33,7 +32,7 @@ try:
 
             cup = seg.segment_nice(imgs, pcds, cup_detections[0].box)
 
-        candy_detections = detect(imgs[0], 'candy')
+        candy_detections = detect(imgs[0], 'a piece of candy')
 
         # Visualize the candy detections.
         candy_detections_img = draw_set_of_marks(imgs[0], candy_detections)

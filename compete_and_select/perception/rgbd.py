@@ -31,13 +31,28 @@ def enumerate_cameras(min_cameras=2):
 def _color(capture):
     return np.ascontiguousarray(capture.color[..., :3][..., ::-1])
 
+_preset_configurations = {
+    'diagonal': [
+        ('000259521012', 'front_left'),
+        ('000243521012', 'back_right')
+    ],
+    'front_only_color': [('000259521012', None)]
+}
+
 class RGBD:
     @staticmethod
-    def autoload(camera_id_to_calibration_preset: list):
+    def autoload(camera_id_to_calibration_preset):
+        if type(camera_id_to_calibration_preset) is str:
+            camera_id_to_calibration_preset = _preset_configurations[camera_id_to_calibration_preset]
+
+        # Cameras are loaded in a deterministic order according to their ID.
         rgbd = RGBD(camera_ids=[cid for cid, cpt in camera_id_to_calibration_preset])
 
-        for i, (camera_id, camera_name) in enumerate(camera_id_to_calibration_preset):
-            with open(os.path.join(os.path.dirname(__file__), f"extrinsics/{camera_name}_camera.json")) as f:
+        for i, (camera_id, extrinsic_id) in enumerate(camera_id_to_calibration_preset):
+            if extrinsic_id is None:
+                continue
+
+            with open(os.path.join(os.path.dirname(__file__), f"extrinsics/{extrinsic_id}_camera.json")) as f:
                 extrinsics = json.load(f)
             extrinsics = {k: np.array(v) for k, v in extrinsics.items()}
 

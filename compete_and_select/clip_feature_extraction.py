@@ -125,6 +125,7 @@ def embed_interpolated(clip_vision_model: CLIPVisionModel, x: torch.Tensor):
     return x
 
 def get_clip_embeddings(image: PIL.Image.Image):
+    # Uses the MaskCLIP parameterization along with positional encoding interpolation.
     with torch.no_grad():
         x = clip_processor(
             images=image,
@@ -143,10 +144,15 @@ def get_clip_embeddings(image: PIL.Image.Image):
         # apply value projection, following MaskCLIP parameterization trick.
         last_enc: CLIPEncoderLayer = clip_vision_model.vision_model.encoder.layers[-1] # type: ignore
         last_attn: CLIPAttention = clip_vision_model.vision_model.encoder.layers[-1].self_attn
+        # Apply all the steps for attention, but treating each token as if it only attended to itself
+        # (resulting in a direct projection through the value weight matrix).
+        # Then apply the same steps as if it were regular attention.
         embedding_map_ = last_enc.layer_norm1(embedding_map_)
         embedding_map_ = last_attn.v_proj(embedding_map_)
         embedding_map_ = last_attn.out_proj(embedding_map_)
         embedding_map_ = clip_vision_model.vision_model.post_layernorm(embedding_map_)
+        # This projects into the shared latent space for vision and text. This is useful for applying
+        # a text embedding to the image and seeing what gets highlighted.
         embedding_map_ = clip_vision_model.visual_projection(embedding_map_)
     return (result.last_hidden_state[0, 0, :].detach().cpu().numpy(), embedding_map_.detach().cpu().numpy())
 
@@ -191,9 +197,10 @@ def get_clip_embeddings_dense_hops(image: PIL.Image.Image):
     return embedding_map
 
 def get_text_embeds(texts):
-    return clip_text_model(
-        **clip_processor(text=texts, return_tensors='pt', padding=True).to(device)
-    ).text_embeds.detach().cpu().numpy()
+    with torch.no_grad():
+        return clip_text_model(
+            **clip_processor(text=texts, return_tensors='pt', padding=True).to(device)
+        ).text_embeds.detach().cpu().numpy()
 
 def get_aligned_size(image: PIL.Image.Image):
     # round up to reach 14.
