@@ -113,7 +113,7 @@ import threading
 SOM_lock = threading.Lock()
 SOM_counter = 0
 
-def select_with_vlm(image, bounding_boxes, target_object, descriptions, dry_run):
+def select_with_vlm(image, bounding_boxes, target_object, descriptions, dry_run, detailed_object_description=None):
     global SOM_counter
     
     # given a set of detections, determine which is the most likely.
@@ -131,21 +131,17 @@ def select_with_vlm(image, bounding_boxes, target_object, descriptions, dry_run)
     
     if dry_run:
         return {"reasoning": None, "logits": None, "response": None}
-
-    context = [
-        {
-            "role": "user",
-            "content": [{"type": "text", "text": "Here is what you currently see."}, {"type": "image_url", "image_url": {"url": image_url(annotated_image)}}]
-        },
-        {
-            "role": "user",
-            "content": f"""It is now time for you to select an object to interact with. Target object: {target_object}
+    
+    prompt = f"""It is now time for you to select an object to interact with. Target object: {target_object}\n\n"""
+    if detailed_object_description is not None:
+        prompt += f"People familiar with the object describe it with the following description: {detailed_object_description}\n\n"
             
-The following objects have been detected:
+    prompt += f"""The following objects have been detected:
 {object_detections_string}
 
-Rank the objects in the scene according to how likely they are to be the best choice.
-Respond with 'likely', 'neutral', and 'unlikely' for each object. Format your response as follows:
+Rank the objects in the scene according to how likely they are to agree with the selection criteria.
+Respond with 'likely', 'neutral', and 'unlikely' for each object. Note that parts of the object description may
+have been obstructed during the captioning phase. Format your response as follows:
 ```
 Reasoning:
 (Your reasoning goes here)
@@ -158,7 +154,13 @@ Choices:
 Answer as if you are controlling a hypothetical robot. Assume that object detections have been
 filtered to be in the reachable zone of the robot.
 """
-        }
+
+    context = [
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": "Here is what you currently see."}, {"type": "image_url", "image_url": {"url": image_url(annotated_image)}}]
+        },
+        {"role": "user", "content": prompt}
     ]
     
     reasoning, logits, response = get_selection_policy(context)

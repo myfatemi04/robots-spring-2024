@@ -32,12 +32,12 @@ try:
         imgs, pcds = rgbd.capture(return_pil=True)
 
         if cup is None:
-            cup_detections = detect(imgs[0], 'cup')
+            cup_detections = detect(imgs[0], 'bowl')
 
             # Visualize the cup detection(s).
             cup_detections_img = draw_set_of_marks(imgs[0], cup_detections)
 
-            plt.title("Cup Detections")
+            plt.title("Bowl Detections")
             plt.imshow(cup_detections_img)
             plt.show()
 
@@ -67,8 +67,7 @@ try:
 
         plt.title("Detections")
         plt.imshow(detections_img)
-        plt.pause(0.05)
-        # plt.show()
+        plt.show()
 
         if len(detections) == 0:
             print("Pens/pencils have all been put away.")
@@ -78,7 +77,7 @@ try:
         descriptions = describe_objects(imgs[0], boxes)
         print(descriptions)
 
-        RLR = standalone_compete_and_select.select_with_vlm(imgs[0], boxes, "dry erase marker", descriptions, dry_run=False)
+        RLR = standalone_compete_and_select.select_with_vlm(imgs[0], boxes, "dry erase marker", descriptions, dry_run=False, detailed_object_description="Markers with black erasers, white bodies, and colored caps.")
         print(RLR['response'])
 
         index = np.argmax(RLR['logits'])
@@ -87,12 +86,14 @@ try:
             print("No favorable options left.")
             break
 
-        obj = seg.segment_nice(imgs, pcds, detections[0].box)
+        obj = seg.segment_nice(imgs, pcds, detections[index].box)
 
         # find longest axis
         axis = obj.point_cloud.max(axis=0) - obj.point_cloud.min(axis=0)
         axis[2] = 0
         axis /= np.linalg.norm(axis)
+
+        print(axis)
 
         up = np.array([0, 0, 1])
 

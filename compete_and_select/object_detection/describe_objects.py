@@ -24,7 +24,7 @@ def describe_object(oai: OpenAI, image, bounding_box):
         messages=[
             {
                 "role": "system",
-                "content": "You accurately describe what is in an image that is presented to you. All statements must be supported by the image content."
+                "content": "You accurately describe what is in an image that is presented to you. All statements must be supported by the image content. Please describe the object based on its physical attributes only. Do not speculate on what type of object it is, as it may be ambiguous."
             },
             {
                 "role": "user",
