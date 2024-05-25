@@ -12,6 +12,7 @@ from matplotlib import pyplot as plt
 from transformers import SamModel, SamProcessor
 
 from . import sam
+from .perception.rgbd import get_normal_map
 from .ransac import get_bounding_box_ransac
 from .util.set_axes_equal import set_axes_equal
 
@@ -140,13 +141,34 @@ class SamPointCloudSegmenter():
             # So convert it to a list.
             *self.segment(rgbs[0], pcds[0], list(bbox), rgbs[1:], pcds[1:])
         )
+    
+    def segment_nice_clip(self, rgbs: List[Image.Image], pcds: List[np.ndarray], bbox: List[int]):
+        from .lmp_scene_api_object import Object
 
-    def segment(self, base_rgb_image: Image.Image, base_point_cloud: np.ndarray, prompt_bounding_box: List[int], supplementary_rgb_images: List[Image.Image], supplementary_point_clouds: List[np.ndarray]):
+        pcd, color, masks, clip_feats = self.segment(rgbs[0], pcds[0], list(bbox), rgbs[1:], pcds[1:], include_clip_features=True)
+
+        return Object(pcd, color, masks, clip_feats)
+
+    def segment(self,
+                base_rgb_image: Image.Image,
+                base_point_cloud: np.ndarray,
+                prompt_bounding_box: List[int],
+                supplementary_rgb_images: List[Image.Image],
+                supplementary_point_clouds: List[np.ndarray],
+                include_clip_features=False,
+                include_normal_map=False):
         """
         Given a base RGB + point cloud image, and a prompt for that image,
         segment the point cloud using the SAM model. Then, fill out the point
         cloud using the other images.
         """
+
+        if include_clip_features:
+            from .clip_feature_extraction import get_full_scale_clip_embeddings
+
+            clip_features = [get_full_scale_clip_embeddings(rgb)['rescaled_cropped'] for rgb in [base_rgb_image] + supplementary_rgb_images]
+        else:
+            clip_features = None
 
         base_segmentation_masks, base_segmentation_scores = self._segment_image(base_rgb_image, input_boxes=[[prompt_bounding_box]])
 
@@ -160,19 +182,23 @@ class SamPointCloudSegmenter():
         base_mask = mask
 
         # render the segmented point cloud
-        # fig = plt.figure()
-        # ax = fig.add_subplot(projection='3d')
-        # ax.set_title("Base Point Cloud Detection")
-        # ax.scatter(base_segmentation_cloud[:, 0], base_segmentation_cloud[:, 1], base_segmentation_cloud[:, 2], c=base_segmentation_cloud_color/255.0, s=0.5)
-        # set_axes_equal(ax)
-        # plt.show()
+        """
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+        ax.set_title("Base Point Cloud Detection")
+        ax.scatter(base_segmentation_cloud[:, 0], base_segmentation_cloud[:, 1], base_segmentation_cloud[:, 2], c=base_segmentation_cloud_color/255.0, s=0.5)
+        set_axes_equal(ax)
+        plt.show()
+        """
 
         point_clouds = [base_segmentation_cloud]
         colors = [base_segmentation_cloud_color]
         segmentation_masks = [base_segmentation_masks[0]]
+        normals = [get_normal_map(base_point_cloud)[mask]] if include_normal_map else []
+        point_cloud_clip_features = [clip_features[0][mask]] if clip_features is not None else []
 
         # Transfer the segmentation to the other point clouds.
-        for supplementary_rgb_image, supplementary_point_cloud in zip(supplementary_rgb_images, supplementary_point_clouds):
+        for i, (supplementary_rgb_image, supplementary_point_cloud) in enumerate(zip(supplementary_rgb_images, supplementary_point_clouds)):
             (transferred_segmentation_masks, transferred_segmentation_scores) = \
                 self.transfer_segmentation(base_mask, base_point_cloud, supplementary_rgb_image, supplementary_point_cloud)
             
@@ -192,13 +218,31 @@ class SamPointCloudSegmenter():
             colors.append(color)
             segmentation_masks.append(transferred_segmentation_masks[0])
 
+            if clip_features is not None:
+                point_cloud_clip_features.append(clip_features[i][mask])
+
+            if include_normal_map:
+                normals.append(get_normal_map(supplementary_point_cloud)[mask])
+
         point_cloud = np.concatenate(point_clouds).reshape(-1, 3)
         color = np.concatenate(colors).reshape(-1, 3)
         valid = ~(point_cloud == -10000).any(axis=-1)
-        point_cloud = point_cloud[valid]
-        color = color[valid]
+        point_cloud = np.ascontiguousarray(point_cloud[valid])
+        color = np.ascontiguousarray(color[valid])
 
-        return (np.ascontiguousarray(point_cloud), np.ascontiguousarray(color), segmentation_masks)
+        out = (point_cloud, color, segmentation_masks)
+
+        if include_clip_features:
+            clip_features = np.concatenate(point_cloud_clip_features).reshape(-1, 768)
+            clip_features = clip_features[valid]
+            out += (clip_features,)
+        
+        if include_normal_map:
+            normal = np.concatenate(normals).reshape(-1, 3)
+            normal = normal[valid]
+            out += (normal,)
+
+        return out
 
 def test():
     import pickle
