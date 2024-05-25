@@ -24,6 +24,21 @@ robot.robot.go_home()
 robot.start_grasp()
 robot.stop_grasp()
 
+# some bullshit franka debugging
+# robot.move_to(
+#     [0.4, 0, 0.2],
+#     vector2quat([0, 1, 0], [0, 0, -1]),
+#     direct=True
+# )
+
+# robot.move_to(
+#     [0.4, 0, 0.2],
+#     vector2quat([0, 0, -1], [0, -1, 0]),
+#     direct=True
+# )
+
+# exit()
+
 cup = None
 
 rim_embed = get_text_embeds('a photo of the rim of a cup')[0]
@@ -74,6 +89,7 @@ try:
         plt.show()
 
         horiz_normal = np.array([selected_normal[0], selected_normal[1], 0])
+        horiz_normal = horiz_normal / np.linalg.norm(horiz_normal)
 
         robot.move_to(
             selected_point - (horiz_normal * 0.2),

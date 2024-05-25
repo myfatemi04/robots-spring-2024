@@ -42,7 +42,7 @@ def run_calibration(preset, intrinsics, distortions):
             true_position[0] -= (cube_size / 2)
 
         # The weird Z offset thing
-        true_position[2] -= 0.1034
+        # true_position[2] -= 0.1034
 
         # Load image and convert to grayscale
         img_path = os.path.join(calibration_out_dir, f"img_{i:02d}.png")

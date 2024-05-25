@@ -71,7 +71,7 @@ class Panda:
         # Get the Z axis
         z_axis = orientation_for_z_correction[:, 2]
 
-        print("Z rotation at end pos:", z_axis)
+        # print("Z rotation at end pos:", z_axis)
         
         pos = torch.tensor(pos).float()
         pos -= torch.tensor(z_axis) * 0.1034
