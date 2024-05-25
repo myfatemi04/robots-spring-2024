@@ -1,8 +1,10 @@
+import json
 import os
 import sys
 
 import cv2
 import numpy as np
+import PIL.Image
 
 from .camera import Camera
 
@@ -30,6 +32,23 @@ def _color(capture):
     return np.ascontiguousarray(capture.color[..., :3][..., ::-1])
 
 class RGBD:
+    @staticmethod
+    def autoload(camera_id_to_calibration_preset: list):
+        rgbd = RGBD(camera_ids=[cid for cid, cpt in camera_id_to_calibration_preset])
+
+        for i, (camera_id, camera_name) in enumerate(camera_id_to_calibration_preset):
+            with open(os.path.join(os.path.dirname(__file__), f"extrinsics/{camera_name}_camera.json")) as f:
+                extrinsics = json.load(f)
+            extrinsics = {k: np.array(v) for k, v in extrinsics.items()}
+
+            rgbd.cameras[i].rvec_tvec = (extrinsics['rvec'], extrinsics['translation'])
+            rgbd.cameras[i].extrinsic_matrix = np.concatenate([
+                extrinsics['rotation_matrix'],
+                extrinsics['translation'][:, np.newaxis]
+            ], axis=1)
+            
+        return rgbd
+
     def __init__(self, num_cameras=None, camera_ids=None, auto_calibrate=False):
         """ camera_ids != None => selects specific cameras for capture """
         if camera_ids is not None:
@@ -91,7 +110,7 @@ class RGBD:
             return True
         return False
 
-    def capture(self):
+    def capture(self, return_pil=False):
         """
         Creates a capture. Adds an RGBD point cloud to each detection, if AprilTags were found (or if an existing calibration exists)
         """
@@ -121,11 +140,17 @@ class RGBD:
             else:
                 point_clouds.append(None)
 
+        if return_pil:
+            color_images = [PIL.Image.fromarray(rgb) for rgb in color_images]
+
         return (color_images, point_clouds)
     
     def close(self):
         for camera in self.cameras:
             camera.close()
+
+    def __del__(self):
+        self.close()
 
 def get_normal_map(point_cloud_image):
     """

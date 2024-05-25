@@ -9,10 +9,12 @@ import numpy as np
 import PIL.Image as Image
 import torch
 from matplotlib import pyplot as plt
+from transformers import SamModel, SamProcessor
+
+from . import sam
 from .ransac import get_bounding_box_ransac
 from .util.set_axes_equal import set_axes_equal
-from transformers import SamModel, SamProcessor
-from . import sam
+
 
 class SamPointCloudSegmenter():
     def __init__(self, device='cuda' if torch.cuda.is_available() else 'cpu', render_2d_results=False):
@@ -129,6 +131,15 @@ class SamPointCloudSegmenter():
         # TODO: Filter out points that are not in the shadow of the original segmentation.
 
         return transferred_segmentation
+
+    def segment_nice(self, rgbs: List[Image.Image], pcds: List[np.ndarray], bbox: List[int]):
+        from .lmp_scene_api_object import Object
+
+        return Object(
+            # bbox might be a tuple by convenience. But SAM gets mad at that.
+            # So convert it to a list.
+            *self.segment(rgbs[0], pcds[0], list(bbox), rgbs[1:], pcds[1:])
+        )
 
     def segment(self, base_rgb_image: Image.Image, base_point_cloud: np.ndarray, prompt_bounding_box: List[int], supplementary_rgb_images: List[Image.Image], supplementary_point_clouds: List[np.ndarray]):
         """
