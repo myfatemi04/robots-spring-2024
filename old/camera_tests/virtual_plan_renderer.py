@@ -56,7 +56,7 @@ def render_virtual_plan(camera_setups: List[VirtualCamera], images: np.ndarray, 
 
 def main():
     import pickle
-    from generate_horizon_dataset import smoothen_with_spline
+    from old.camera_tests.generate_horizon_dataset import smoothen_with_spline
     
     with open("recordings/recording_011_drawer_play_data_high_sample_rate/annotated/annotated_recording.pkl", "rb") as f:
         recording = pickle.load(f)

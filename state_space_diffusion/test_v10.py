@@ -11,10 +11,10 @@ import transformers
 from demo_to_state_action_pairs import create_labels_v4, create_torch_dataset_v4, CAMERAS as camera_names
 from get_data import generate_demos
 from model_architectures import VisualPlanDiffuserV7
-from visualization import visualize_2d_score_prediction
+from old.camera_tests.visualization import visualize_2d_score_prediction
 import grid_sampling
 import inference
-import visualization
+import old.camera_tests.visualization as visualization
 
 def freeze_clip_layers(clip, first_n=0):
     for i in range(first_n):

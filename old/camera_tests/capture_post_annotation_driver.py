@@ -5,7 +5,7 @@ import traceback
 import cv2
 import tqdm
 
-import visualization
+import old.camera_tests.visualization as visualization
 from compete_and_select.perception.camera import VirtualCamera
 from capture import Capture, apriltag_object_points
 

@@ -15,7 +15,7 @@ Anyway. For now, let's just inspect the data.
 import pickle
 import time
 
-from visualization import ObjectDetectionVisualizer
+from old.camera_tests.visualization import ObjectDetectionVisualizer
 import numpy as np
 from scipy.interpolate import splrep, BSpline
 import matplotlib.pyplot as plt
