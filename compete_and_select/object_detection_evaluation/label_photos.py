@@ -10,8 +10,8 @@ from matplotlib import pyplot as plt
 from PIL import Image
 
 from .class_labels import class_labels
-from .sam import boxes_to_masks
-from .select_bounding_box import select_bounding_box
+from ..sam import boxes_to_masks
+from ..select_bounding_box import select_bounding_box
 
 
 def get_all_classes(filenames):

@@ -7,18 +7,19 @@ import numpy as np
 import PIL.Image as Image
 import polymetis
 import torch
-from generate_action_candidates import generate_action_candidates
-from detect_objects import draw_set_of_marks
-from select_next_action import select_next_action
 
 # import cv2
 import apriltag
+
+from ..object_detection_utils import draw_set_of_marks
+from ..perception.camera import Camera
+from .generate_action_candidates import generate_action_candidates
+from .select_next_action import select_next_action
 
 
 def main():
     import pyk4a
     sys.path.insert(0, "../")
-    from compete_and_select.perception.camera import Camera
     
     num_cameras = 2
     if pyk4a.connected_device_count() < num_cameras:
