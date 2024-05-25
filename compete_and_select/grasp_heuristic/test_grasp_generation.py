@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image as Image
 from detect_grasps import detect_grasps
-from set_axes_equal import set_axes_equal
+from compete_and_select.util.set_axes_equal import set_axes_equal
 from voxelize import voxelize
 
 

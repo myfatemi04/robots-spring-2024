@@ -3,22 +3,18 @@
 
 import os
 import pickle
-import sys
 
 import numpy as np
 import PIL.Image as Image
 import polymetis
-from matplotlib import pyplot as plt
+import pyk4a
 import torch
+from matplotlib import pyplot as plt
 from vlms import gpt4v_plusplus as gpt4v
 
+from ..perception.camera import Camera
+
 task_image = Image.open("sample_images/task_image.png")
-
-import pyk4a
-
-sys.path.insert(0, "../")
-from compete_and_select.perception.camera import Camera
-
 num_cameras = 1
 if pyk4a.connected_device_count() < num_cameras:
     print(f"Error: Not enough K4A devices connected (<{num_cameras}).")

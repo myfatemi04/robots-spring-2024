@@ -3,7 +3,7 @@ import os
 import PIL.Image
 
 import matplotlib.pyplot as plt
-from .perception.rgbd import RGBD
+from ..perception.rgbd import RGBD
 
 
 def main():

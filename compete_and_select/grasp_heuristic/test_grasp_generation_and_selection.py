@@ -9,7 +9,7 @@ import segment_point_cloud
 from detect_grasps import detect_grasps
 from detect_objects import detect as detect_objects_2d
 from matplotlib import pyplot as plt
-from set_axes_equal import set_axes_equal
+from compete_and_select.util.set_axes_equal import set_axes_equal
 
 
 def smoothen_pcd(pcd):

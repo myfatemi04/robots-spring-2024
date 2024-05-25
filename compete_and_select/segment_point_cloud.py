@@ -10,7 +10,7 @@ import PIL.Image as Image
 import torch
 from matplotlib import pyplot as plt
 from .ransac import get_bounding_box_ransac
-from .set_axes_equal import set_axes_equal
+from .util.set_axes_equal import set_axes_equal
 from transformers import SamModel, SamProcessor
 from . import sam
 
