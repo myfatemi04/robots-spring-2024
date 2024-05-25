@@ -14,14 +14,14 @@ from ..util.set_axes_equal import set_axes_equal
 def run_demo():
     rgbd = RGBD(camera_ids=['000259521012', '000243521012'])
 
-    # PLOT_MODE = 'rgbd:1'
-    PLOT_MODE = 'point_cloud'
+    PLOT_MODE = 'rgbd:0'
+    # PLOT_MODE = 'point_cloud'
     # This can slow down the program a lot.
     # Applies for RGBD plot mode.
     RGBD_MODE_PLOT_POINT_CLOUDS = True
 
     # Load the extrinsic information
-    for i, camera_name in enumerate(['front', 'back_left']):
+    for i, camera_name in enumerate(['front_left', 'back_right']):
         with open(os.path.join(os.path.dirname(__file__), f"extrinsics/{camera_name}_camera.json")) as f:
             extrinsics = json.load(f)
         extrinsics = {k: np.array(v) for k, v in extrinsics.items()}
@@ -83,42 +83,45 @@ def run_demo():
         ax = fig.add_subplot(111, projection='3d')
 
         # Filter to this box.
-        min_coords = np.array([0, -1, 0])
-        max_coords = np.array([1, 1, 1])
+        min_coords = np.array([0, -0.5, 0])
+        max_coords = np.array([1, 0.5, 1])
         
         # Skip every N valid points.
         # Should be approximately correct... assuming points are uniformly distributed where they
         # are valid.
-        decimate = 50
+        decimate = 1
         decimate_mask = np.zeros((720 * 1280), dtype=bool)
         decimate_mask[::decimate] = True
         decimate_mask = decimate_mask.reshape(720, 1280)
 
-        while True:
-            rgbs, pcds = rgbd.capture()
+        try:
+            while True:
+                rgbs, pcds = rgbd.capture()
 
-            ax.clear()
-            ax.set_xlim(min_coords[0], max_coords[0])
-            ax.set_ylim(min_coords[1], max_coords[1])
-            ax.set_zlim(min_coords[2], max_coords[2])
-            ax.set_xlabel("X")
-            ax.set_ylabel("Y")
-            ax.set_zlabel("Z")
-            for i in range(len(rgbd.cameras)):
-                if i == 0: continue
+                ax.clear()
+                ax.set_xlim(min_coords[0], max_coords[0])
+                ax.set_ylim(min_coords[1], max_coords[1])
+                ax.set_zlim(min_coords[2], max_coords[2])
+                ax.set_xlabel("X")
+                ax.set_ylabel("Y")
+                ax.set_zlabel("Z")
+                for i in range(len(rgbd.cameras)):
+                    valid_point_mask = np.all((pcds[i] >= min_coords) & (pcds[i] <= max_coords), axis=-1)
+                    valid_point_mask &= decimate_mask
 
-                valid_point_mask = np.all((pcds[i] >= min_coords) & (pcds[i] <= max_coords), axis=-1)
-                valid_point_mask &= decimate_mask
+                    # Draw the points.
+                    ax.scatter(
+                        *pcds[i][valid_point_mask].T,
+                        c=rgbs[i][valid_point_mask] / 255,
+                        s=1
+                    )
 
-                # Draw the points.
-                ax.scatter(
-                    *pcds[i][valid_point_mask].T,
-                    c=rgbs[i][valid_point_mask] / 255,
-                    s=1
-                )
-
-            # Trigger an interruption-free rerender.
-            plt.pause(0.05)
+                # Trigger an interruption-free rerender.
+                plt.pause(0.05)
+        except KeyboardInterrupt:
+            # this is a horrible practice btw.
+            print("KeyboardInterrupt. Calling `plt.show()`.")
+            plt.show()
 
 if __name__ == '__main__':
     run_demo()

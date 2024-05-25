@@ -14,7 +14,6 @@ from .rgbd import RGBD
 # by traversing the vertices of a cube.
 
 def create_waypoints(x1, y1, z1, x2, y2, z2):
-
     waypoints = [
         # Cycle 1: back cube face
         [x1, y1, z1],
@@ -39,20 +38,7 @@ def create_NxN_waypoints(X, Y, Z):
             for zi in range(len(Z)):
                 yield [X[xi], Y[yi], Z[zi]]
 
-waypoints = {
-    "front": create_waypoints(
-        x1=0.4,
-        x2=0.6,
-        y1=-0.2,
-        y2=0.2,
-        z1=0.1,
-        z2=0.3,
-    ),
-    "back_left": list(create_NxN_waypoints(
-        X=[0.3, 0.4, 0.5],
-        Y=[0.1, -0.1, -0.3],
-        Z=[0.1, 0.2, 0.3],
-    )),
+waypoints_bad = {
     "back_right": create_waypoints(
         x1=0.3,
         x2=0.5,
@@ -69,6 +55,19 @@ waypoints = {
         z1=0.1,
         z2=0.3,
     ),
+}
+
+waypoints = {
+    "back_right": list(create_NxN_waypoints(
+        X=[0.3, 0.4, 0.5],
+        Y=[-0.1, 0.1, 0.3],
+        Z=[0.1, 0.2, 0.3],
+    )),
+    "front_left": list(create_NxN_waypoints(
+        X=[0.3, 0.4, 0.5],
+        Y=[-0.3, -0.1, 0.1],
+        Z=[0.1, 0.2, 0.3],
+    )),
 }
 
 def collect_trajectory(preset):
@@ -128,7 +127,7 @@ def collect_trajectory(preset):
         json.dump(eef_poses, f)
 
 if __name__ == "__main__":
-    preset = 'back_right'
+    preset = 'front_left'
     camera_id = '000259521012' if 'front' in preset else '000243521012'
     calibration_out_dir = os.path.join(os.path.dirname(__file__), f"calibration_images_{preset}")
 

@@ -36,7 +36,7 @@ def run_calibration(preset, intrinsics, distortions):
         true_position = np.array(list(waypoints[i]))
 
         # Compensation for AprilTag not being exactly at the center of end-effector.
-        if preset == 'front':
+        if 'front' in preset:
             true_position[0] += (cube_size / 2)
         else:
             true_position[0] -= (cube_size / 2)
