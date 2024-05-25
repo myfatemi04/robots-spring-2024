@@ -1,3 +1,4 @@
+import json
 import os
 import time
 from typing import List
@@ -12,32 +13,59 @@ from .rgbd import RGBD
 # These should get 4 samples from each coordinate, in unique combinations,
 # by traversing the vertices of a cube.
 
-x1 = 0.4
-x2 = 0.6
-y1 = -0.2
-y2 = 0.2
-z1 = 0.1
-z2 = 0.3
+def create_waypoints(x1, y1, z1, x2, y2, z2):
 
-waypoints = [
-    # Cycle 1: back cube face
-    [x1, y1, z1],
-    [x1, y1, z2],
-    [x1, y2, z2],
-    [x1, y2, z1],
-    [x1, y1, z1],
+    waypoints = [
+        # Cycle 1: back cube face
+        [x1, y1, z1],
+        [x1, y1, z2],
+        [x1, y2, z2],
+        [x1, y2, z1],
+        [x1, y1, z1],
 
-    # Cycle 2: front cube face
-    [x2, y1, z1],
-    [x2, y1, z2],
-    [x2, y2, z2],
-    [x2, y2, z1],
-    [x2, y1, z1],
-]
+        # Cycle 2: front cube face
+        [x2, y1, z1],
+        [x2, y1, z2],
+        [x2, y2, z2],
+        [x2, y2, z1],
+        [x2, y1, z1],
+    ]
 
-calibration_out_dir = os.path.join(os.path.dirname(__file__), "calibration_images")
+    return waypoints
 
-def collect_trajectory():
+def create_NxN_waypoints(X, Y, Z):
+    for xi in range(len(X)):
+        for yi in range(len(Y)):
+            for zi in range(len(Z)):
+                yield [X[xi], Y[yi], Z[zi]]
+
+waypoints = {
+    "front": create_waypoints(
+        x1=0.4,
+        x2=0.6,
+        y1=-0.2,
+        y2=0.2,
+        z1=0.1,
+        z2=0.3,
+    ),
+    "back_left": list(create_NxN_waypoints(
+        X=[0.3, 0.4, 0.5],
+        Y=[0.1, -0.1, -0.3],
+        Z=[0.1, 0.2, 0.3],
+    ))
+    # "back_left": create_waypoints(
+    #     x1=0.3,
+    #     x2=0.4,
+    #     y1=0.1,
+    #     y2=-0.3,
+    #     z1=0.1,
+    #     z2=0.3,
+    # )
+}
+
+def collect_trajectory(preset):
+    calibration_out_dir = os.path.join(os.path.dirname(__file__), f"calibration_images_{preset}")
+
     robot = Panda("192.168.1.222")
 
     # "claw" parameter = what direction the palm of the claw faces
@@ -48,6 +76,9 @@ def collect_trajectory():
 
     # Wait to accept the cube.
     robot.move_to([0.4, 0.0, 0.1], accept_cube_rot, direct=True)
+
+    if robot.gripper.get_state().width < 0.02:
+        robot.stop_grasp()
 
     input("Place cube in claw.")
 
@@ -60,14 +91,20 @@ def collect_trajectory():
     rgbd = RGBD(num_cameras=1)
 
     imgs: List[PIL.Image.Image] = []
+    eef_poses = []
 
-    for i, waypoint in enumerate(waypoints):
-        print(f"Moving to waypoint {i + 1} / 10: ", waypoint)
+    for i, waypoint in enumerate(waypoints[preset]):
+        print(f"Moving to waypoint {i + 1} / {len(waypoints[preset])}: ", waypoint)
         robot.move_to(waypoint, vertical_rot, direct=True)
 
         time.sleep(2.0)
 
         (rgbs, pcds) = rgbd.capture()
+        # measure the actual end-effector position
+        eef_pose = robot.get_pos()[0]
+        eef_poses.append(
+            eef_pose.numpy().tolist()
+        )
 
         imgs.append(PIL.Image.fromarray(rgbs[0]))
 
@@ -81,9 +118,15 @@ def collect_trajectory():
     for i, img in enumerate(imgs):
         img.save(os.path.join(calibration_out_dir, f"img_{i:02d}.png"))
 
+    with open(os.path.join(calibration_out_dir, "eef_poses.json"), "w") as f:
+        json.dump(eef_poses, f)
+
 if __name__ == "__main__":
+    preset = 'back_left'
+    calibration_out_dir = os.path.join(os.path.dirname(__file__), f"calibration_images_{preset}")
+
     if os.path.exists(calibration_out_dir):
         print("calibration_images directory already exists. Please delete it first.")
         exit(1)
     else:
-        collect_trajectory()
+        collect_trajectory(preset)

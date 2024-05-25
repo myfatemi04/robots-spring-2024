@@ -29,3 +29,6 @@ conda activate polymetis_again
 
 # export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
 # export CUDA_HOME=/home/huron/Repos_2/polymetis_miniconda3/envs/robo
+
+# Add the AprilTag library to the path.
+export LD_LIBRARY_PATH=$(pwd)/lib:$LD_LIBRARY_PATH

@@ -6,12 +6,10 @@ import numpy as np
 
 from .camera import Camera
 
-sys.path.insert(0, "../../")
+sys.path.insert(0, os.path.realpath(os.path.join(os.path.dirname(__file__), "..")))
 import apriltag
 
-sys.path.remove("../../")
-
-
+sys.path.pop(0)
 
 def enumerate_cameras(num_cameras=2):
     import pyk4a  # type: ignore
@@ -43,11 +41,13 @@ class RGBD:
         self.auto_calibrate = auto_calibrate
 
         k4as = []
-        for camera_id in k4a_device_map.keys():
-            if camera_id in camera_ids:
-                k4as.append(k4a_device_map[camera_id])
-            else:
-                k4a_device_map[camera_id].stop()
+        remaining = set(k4a_device_map.keys())
+        for camera_id in camera_ids:
+            k4as.append(k4a_device_map[camera_id])
+            remaining.remove(camera_id)
+        
+        for camera_id in remaining:
+            k4a_device_map[camera_id].stop()
 
         self.cameras = [Camera(k4a) for k4a in k4as]
 
