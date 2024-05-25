@@ -13,6 +13,7 @@ seg = SamPointCloudSegmenter()
 robot.robot.go_home()
 robot.start_grasp()
 robot.stop_grasp()
+robot.time_to_go = 2
 
 cup = None
 
@@ -32,14 +33,15 @@ try:
 
             cup = seg.segment_nice(imgs, pcds, cup_detections[0].box)
 
-        candy_detections = detect(imgs[0], 'a piece of candy')
+        candy_detections = detect(imgs[0], 'a piece of candy', threshold=0.01)
 
         # Visualize the candy detections.
         candy_detections_img = draw_set_of_marks(imgs[0], candy_detections)
 
         plt.title("Candy Detections")
         plt.imshow(candy_detections_img)
-        plt.show()
+        plt.pause(0.05)
+        # plt.show()
 
         if len(candy_detections) == 0:
             print("Candies have all been put away.")

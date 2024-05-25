@@ -58,7 +58,7 @@ def _fix_detection_heights(predictions, image_width, image_height):
         predictions_2.append(rescaled_prediction)
     return predictions_2
 
-def detect(image, label, use_clip_projection=False):
+def detect(image, label, use_clip_projection=False, threshold=0.1):
     start = time.time()
 
     with torch.no_grad():
@@ -68,7 +68,7 @@ def detect(image, label, use_clip_projection=False):
     # Target image sizes (height, width) to rescale box predictions [batch_size, 2]
     target_sizes = torch.Tensor([image.size[::-1]])
     # Convert outputs (bounding boxes and class logits) to Pascal VOC format (xmin, ymin, xmax, ymax)
-    results = processor.post_process_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=0.1)
+    results = processor.post_process_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=threshold)
     # Corresponds to texts[0], which is just label
     results = results[0]
     boxes, scores, labels = results["boxes"], results["scores"], results["labels"]
