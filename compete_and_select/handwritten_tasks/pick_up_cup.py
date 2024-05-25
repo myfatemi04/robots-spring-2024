@@ -42,7 +42,7 @@ try:
         plt.show()
 
         cup_detection = cup_detections[1]
-        point_cloud, color, seg, normal = seg.segment(imgs[0], pcds[0], list(cup_detection.box), imgs[1:], pcds[1:], include_normal_map=True)
+        point_cloud, color, segs, normal = seg.segment(imgs[0], pcds[0], list(cup_detection.box), imgs[1:], pcds[1:], include_normal_map=True)
 
         ##### Begin unhinged experiment to segment cup rim in point cloud space using CLIP ###
         be_unhinged = False

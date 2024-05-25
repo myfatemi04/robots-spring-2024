@@ -41,6 +41,9 @@ def run_calibration(preset, intrinsics, distortions):
         else:
             true_position[0] -= (cube_size / 2)
 
+        # The weird Z offset thing
+        true_position[2] -= 0.1034
+
         # Load image and convert to grayscale
         img_path = os.path.join(calibration_out_dir, f"img_{i:02d}.png")
         if not os.path.exists(img_path):
@@ -104,16 +107,16 @@ if __name__ == '__main__':
     # To obtain these, call the "print_camera_intrinsics()" function above.
 
 
-    (rvec, rmat, tvec) = run_calibration('back_left', **camera_params['000243521012'])
-    with open(os.path.join(os.path.dirname(__file__), "extrinsics/back_left_camera.json"), "w") as f:
+    (rvec, rmat, tvec) = run_calibration('back_right', **camera_params['000243521012'])
+    with open(os.path.join(os.path.dirname(__file__), "extrinsics/back_right_camera.json"), "w") as f:
         json.dump({
             "rvec": rvec.tolist(),
             "rotation_matrix": rmat.tolist(),
             "translation": tvec.tolist(),
         }, f)
 
-    (rvec, rmat, tvec) = run_calibration('front', **camera_params['000259521012'])
-    with open(os.path.join(os.path.dirname(__file__), "extrinsics/front_camera.json"), "w") as f:
+    (rvec, rmat, tvec) = run_calibration('front_left', **camera_params['000259521012'])
+    with open(os.path.join(os.path.dirname(__file__), "extrinsics/front_left_camera.json"), "w") as f:
         json.dump({
             "rvec": rvec.tolist(),
             "rotation_matrix": rmat.tolist(),
