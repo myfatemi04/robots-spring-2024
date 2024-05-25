@@ -30,7 +30,7 @@ class Panda:
         ROBOT_CONTROL_Y_BIAS = 0.0
         # ROBOT_CONTROL_Y_BIAS =  -0.021 # orig 0
         # so weird but this appears in RobotState.F_T_EE and when the URDF files do forward dynamics they apply this transform
-        ROBOT_CONTROL_Z_BIAS = 0.1034
+        ROBOT_CONTROL_Z_BIAS = 0 # 0.1034
         # ROBOT_CONTROL_Z_BIAS = 0.11184475 # 0.400 - (0.38415525) + 0.096
         # ROBOT_CONTROL_Z_BIAS = 0.096 # orig 0.1
         self.movement_bias = torch.tensor([ROBOT_CONTROL_X_BIAS, ROBOT_CONTROL_Y_BIAS, ROBOT_CONTROL_Z_BIAS]).float()
@@ -56,8 +56,25 @@ class Panda:
 
     def move_to(self, pos, orientation=None, direct=False, **kwargs):
         if self.mock: return
+
+        current_orientation = np.array(self.robot.get_ee_pose()[1])
+
+        if orientation is None:
+            orientation_for_z_correction = current_orientation
+        else:
+            orientation_for_z_correction = orientation
+
+        # Apply the rotation bias
+        orientation_for_z_correction = Rotation.from_quat(orientation_for_z_correction) * self.rotation_bias
+        # Get the rotation matrix
+        orientation_for_z_correction = orientation_for_z_correction.as_matrix()
+        # Get the Z axis
+        z_axis = orientation_for_z_correction[:, 2]
+
+        print("Z rotation at end pos:", z_axis)
         
         pos = torch.tensor(pos).float()
+        pos -= torch.tensor(z_axis) * 0.1034
 
         if orientation is not None:
             # fix the weird rotation bug
