@@ -8,7 +8,7 @@ import torch
 import torchvision.ops as ops
 from transformers import Owlv2ForObjectDetection, Owlv2Processor
 
-from .clip_feature_extraction import embed_box
+from ..clip_feature_extraction import embed_box
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 

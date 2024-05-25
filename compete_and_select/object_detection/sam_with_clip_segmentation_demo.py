@@ -1,16 +1,19 @@
+import dotenv
+
+dotenv.load_dotenv("./compete_and_select/.env")
+
 import numpy as np
 import PIL.Image
+import torch
 from matplotlib import cm, patches
 from matplotlib import pyplot as plt
-import torch
+from torchvision.ops import masks_to_boxes
 from transformers import pipeline
 
 from .. import RGBD
 from ..clip_feature_extraction import (get_full_scale_clip_embedding_tiles,
                                        get_text_embeds)
-from .describe_objects import describe_objects
-
-from torchvision.ops import masks_to_boxes
+from .describe_objects import describe_objects, describe_objects_oss
 
 generator = pipeline("mask-generation", model="facebook/sam-vit-base", device=0)
 
@@ -27,6 +30,10 @@ masks = torch.tensor(np.stack(masks, axis=0))
 
 # Get bounding boxes for the masks.
 bounding_boxes = masks_to_boxes(masks)
+bounding_boxes = [
+    (int(x1), int(y1), int(x2), int(y2))
+    for (x1, y1, x2, y2) in bounding_boxes
+]
 
 print(len(bounding_boxes), "objects detected.")
 
@@ -43,6 +50,9 @@ scores /= scores.max()
 
 scores_image = PIL.Image.fromarray(scores).resize((image.width, image.height), resample=PIL.Image.BILINEAR)
 scores_image = np.array(scores_image)
+
+descriptions = describe_objects_oss(image, bounding_boxes)
+print(descriptions)
 
 for (bbox, mask) in zip(bounding_boxes, masks):
     score = scores_image[mask].mean()

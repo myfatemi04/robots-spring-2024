@@ -4,12 +4,7 @@ import PIL.Image
 from openai import OpenAI
 
 from ..vlms import image_url
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-moondream_model_id = "vikhyatk/moondream2"
-moondream_revision = "2024-05-20"
-moondream_model = AutoModelForCausalLM.from_pretrained(moondream_model_id, revision=moondream_revision, trust_remote_code=True)
-moondream_tokenizer = AutoTokenizer.from_pretrained(moondream_model_id)
+from .llava16 import llava16_vqa
 
 def create_padded_crop(image: PIL.Image.Image, bounding_box):
     # Slightly expand the bounding box.
@@ -53,12 +48,17 @@ def describe_objects(image, bounding_boxes):
 
 def describe_object_oss(image, bounding_box):
     item_image = create_padded_crop(image, bounding_box)
-
+    result = llava16_vqa(item_image, "What is this object?") # type: ignore
+    print("Result:", result)
+    return result
 
 def describe_objects_oss(image, bounding_boxes):
-    oai = OpenAI()
     # Speed up this code with multithreading.
-    with ThreadPoolExecutor() as executor:
-        results = executor.map(lambda bounding_box: describe_object(oai, image, bounding_box), bounding_boxes)
-    return list(results)
+    # with ThreadPoolExecutor() as executor:
+    #     results = executor.map(lambda bounding_box: describe_object_oss(image, bounding_box), bounding_boxes)
+    # return list(results)
+    
+    return list(
+        map(lambda bounding_box: describe_object_oss(image, bounding_box), bounding_boxes)
+    )
 
