@@ -113,9 +113,27 @@ if __name__ == "__main__":
     # 1. Generate bounding boxes
     # 2. Generate masks
 
-    prefix_dir = './photos/solidbg/condiments'
-    slug_labels = class_labels['condiments']['slug_labels']
-    natural_language_labels = class_labels['condiments']['natural_language_labels']
+    """
+    Groups completed:
+     - Condiments (coarse)
+     - Cups (coarse)
+     - Spoons (coarse)
+
+    Groups to complete:
+     - Cups (direct)
+     - Spoons (direct)
+     - Condiments (direct)
+     - Canisters (direct)
+     - Canisters (coarse)
+     - Writing utensils (direct)
+     - Writing utensils (coarse)
+    """
+
+    group = 'writing_utensils'
+
+    prefix_dir = './photos/solidbg/' + group
+    slug_labels = class_labels[group]['slug_labels']
+    natural_language_labels = class_labels[group]['natural_language_labels']
 
     label_bounding_boxes(prefix_dir)
 
