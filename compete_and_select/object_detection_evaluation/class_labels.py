@@ -1,6 +1,24 @@
+"""
+Properties:
+ - slug_labels: Labels for debugging
+ - natural_language_labels: Labels based on visual properties
+ - natural_language_labels_branded: Labels based on brand names
+ - coarse_label: Coarse label for the class (can be used to make initial selection)
+
+If we use few-shot learning to generate coarse labels, we can use cross-validation.
+
+"""
+
 class_labels = {
     'cups': {
-        'slug_labels': ['blue_mug', 'white_mug', 'green_coffee_cup', 'white_plastic_cup', 'uva_football_cup', 'green_cup'],
+        'slug_labels': [
+            'blue_mug',
+            'white_mug',
+            'green_coffee_cup',
+            'white_plastic_cup',
+            'uva_football_cup',
+            'green_cup',
+        ],
         'natural_language_labels': [
             "blue mug",
             "white mug",

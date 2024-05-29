@@ -1,17 +1,25 @@
 import numpy as np
 import PIL.Image
 import torch
-from torch.nn.functional import interpolate
 from matplotlib import pyplot as plt
+from torch.nn.functional import interpolate
 from transformers import CLIPProcessor
 from transformers.models.clip.modeling_clip import (
     CLIPAttention, CLIPEncoderLayer, CLIPTextModelWithProjection,
-    CLIPVisionModel, CLIPVisionModelWithProjection)
+    CLIPVisionModelWithProjection)
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu'))
 
-clip_vision_model: CLIPVisionModelWithProjection = CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").to(device) # type: ignore
-clip_text_model: CLIPTextModelWithProjection = CLIPTextModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").to(device) # type: ignore
+# clip_vision_model: CLIPVisionModelWithProjection = torch.compile(
+#     CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-large-patch14", device_map=device), # type: ignore
+#     backend='eager'
+# )
+
+clip_vision_model: CLIPVisionModelWithProjection = CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-large-patch14", device_map=device) # type: ignore
+clip_text_model: CLIPTextModelWithProjection = torch.compile(
+    CLIPTextModelWithProjection.from_pretrained("openai/clip-vit-large-patch14", device_map=device), # type: ignore
+    backend='eager'
+)
 clip_processor: CLIPProcessor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14") # type: ignore
 
 def get_clip_embeddings___old(image: PIL.Image.Image, return_np=True):
@@ -97,7 +105,7 @@ def interpolate_positional_embedding(
     pos_embed_interp = torch.cat([class_pos_embed, patch_pos_embed_interp], dim=0)  # (w0 * h0 + 1, dim)
     return pos_embed_interp.to(x.dtype)
 
-def embed_interpolated(clip_vision_model: CLIPVisionModel, x: torch.Tensor):
+def embed_interpolated(clip_vision_model: CLIPVisionModelWithProjection, x: torch.Tensor):
     # Get pre-positional-embedding tokens.
     _, _, h, w = x.shape
     # (b, d, h, w)

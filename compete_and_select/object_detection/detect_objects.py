@@ -10,7 +10,7 @@ from transformers import Owlv2ForObjectDetection, Owlv2Processor
 
 from ..clip_feature_extraction import embed_box
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu'))
 
 
 # create clip embeddings for objects
@@ -21,11 +21,11 @@ def add_object_clip_embeddings(image: Image.Image, detections, use_projection):
         
     return detections
 
-# model_name = 'google/owlv2-large-patch14-ensemble'
+model_name = 'google/owlv2-large-patch14-ensemble'
 # Faster
-model_name = "google/owlv2-base-patch16-ensemble"
+# model_name = "google/owlv2-base-patch16-ensemble"
 processor: Owlv2Processor = Owlv2Processor.from_pretrained(model_name) # type: ignore
-model: Owlv2ForObjectDetection = Owlv2ForObjectDetection.from_pretrained(model_name).to(device) # type: ignore
+model = torch.compile(Owlv2ForObjectDetection.from_pretrained(model_name, device_map=device), backend='eager') # type: ignore
 
 @dataclass
 class Detection:
