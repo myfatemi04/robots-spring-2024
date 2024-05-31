@@ -12,3 +12,5 @@ openai
 hjson
 einops
 
+flash_attn
+

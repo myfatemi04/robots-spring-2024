@@ -17,24 +17,18 @@ processor: Owlv2Processor = Owlv2Processor.from_pretrained(model_name) # type: i
 model = torch.compile(Owlv2ForObjectDetection.from_pretrained(model_name, device_map=device), backend='eager') # type: ignore
 
 ### VLM ###
-use_moondream = True
+model_type = 'moondream'
 
-if use_moondream:
-    model_id = "vikhyatk/moondream2"
-    revision = "2024-05-20"
-    vlm = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        trust_remote_code=True,
-        revision=revision,
-        device_map=device
-    )
-    tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
+if model_type == 'moondream':
+    from moondream_model import vlm, tokenizer
 
     # optional compilation
     # vlm.vision_encoder = torch.compile(vlm.vision_encoder, backend='eager')
     # vlm.text_model = torch.compile(vlm.text_model, backend='eager')
-else:
+elif model_type == 'prismatic':
     from prismatic_model import vlm
+elif model_type == 'multimodal_phi':
+    from multimodal_phi_model import vlm, processor
 
 ### Final Verdict ###
 phi2 = AutoModelForCausalLM.from_pretrained("microsoft/phi-2", torch_dtype="auto", trust_remote_code=True, device_map=device)
@@ -148,7 +142,7 @@ def detect(image: PIL.Image.Image, targets: list, coarse_threshold_=0.1, verbose
     crops = [image.crop(tuple(int(x) for x in box)) for box in boxes]
     
     # Try batched inference.
-    if use_moondream:
+    if model_type == 'moondream':
         captions = []
         with torch.no_grad():
             i = 0
@@ -156,8 +150,7 @@ def detect(image: PIL.Image.Image, targets: list, coarse_threshold_=0.1, verbose
                 crops_ = crops[i:i + 4]
                 i += 4
                 captions.extend(vlm.batch_answer(crops_, ["Briefly describe this image in terms of objective, physical attributes."] * len(crops_), tokenizer))
-    else:
-        
+    elif model_type == 'prismatic':
         do_batched = False
         if do_batched:
             # Batched inference.
@@ -196,6 +189,34 @@ def detect(image: PIL.Image.Image, targets: list, coarse_threshold_=0.1, verbose
                     # plt.title(caption)
                     # plt.imshow(crop)
                     # plt.show()
+    elif model_type == 'multimodal_phi':
+        captions = []
+        # Serial generation.
+        for crop in crops:
+            print(f"Generating caption {len(captions) + 1} / {len(crops)} ...")
+            with torch.no_grad():
+                # Pad to create a square image
+                max_dim = max(crop.width, crop.height)
+                crop_pad = PIL.Image.new('RGB', (max_dim, max_dim))
+                crop_pad.paste(crop, ((max_dim - crop.width) // 2, (max_dim - crop.height) // 2))
+                
+                prompt = "<|user|>\n<|image_1|>Please describe this image in terms of physical attributes.<|end|>\n<|assistant|>\n{response_1}<|end|>\n<|user|>\n{prompt_2}<|end|>\n<|assistant|>\n"
+                
+                inputs = processor(prompt, [crop_pad], return_tensors="pt").to("cuda:0")
+                
+                generation_args = {
+                    "temperature": 0.0,
+                    "do_sample": False,
+                    "max_new_tokens": 500,
+                }
+                
+                generate_ids = model.generate(**inputs, eos_token_id=processor.tokenizer.eos_token_id, **generation_args) 
+
+                # remove input tokens 
+                generate_ids = generate_ids[:, inputs['input_ids'].shape[1]:]
+                response = processor.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+                
+                captions.append(response)
     
     if verbose:
         print("Generated captions.")
