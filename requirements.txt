@@ -14,3 +14,5 @@ einops
 
 flash_attn
 
+gsutil
+kagglehub
