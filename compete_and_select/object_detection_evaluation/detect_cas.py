@@ -17,15 +17,29 @@ processor: Owlv2Processor = Owlv2Processor.from_pretrained(model_name) # type: i
 model = torch.compile(Owlv2ForObjectDetection.from_pretrained(model_name, device_map=device), backend='eager') # type: ignore
 
 ### VLM ###
-model_id = "vikhyatk/moondream2"
-revision = "2024-05-20"
-vlm = AutoModelForCausalLM.from_pretrained(
-    model_id,
-    trust_remote_code=True,
-    revision=revision,
-    device_map=device
-)
-tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
+use_moondream = True
+
+if use_moondream:
+    model_id = "vikhyatk/moondream2"
+    revision = "2024-05-20"
+    vlm = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        trust_remote_code=True,
+        revision=revision,
+        device_map=device
+    )
+    tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
+
+    # optional compilation
+    # vlm.vision_encoder = torch.compile(vlm.vision_encoder, backend='eager')
+    # vlm.text_model = torch.compile(vlm.text_model, backend='eager')
+else:
+    from prismatic_model import vlm
+
+### Final Verdict ###
+phi2 = AutoModelForCausalLM.from_pretrained("microsoft/phi-2", torch_dtype="auto", trust_remote_code=True, device_map=device)
+phi2_tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-2", trust_remote_code=True)
+phi2 = torch.compile(phi2, backend='eager') # optional
 
 # Modified version of the one in
 # https://github.com/huggingface/transformers/blob/main/src/transformers/models/owlv2/image_processing_owlv2.py
@@ -113,6 +127,7 @@ def get_caption_logits(caption, target):
     return (y.item(), n.item())
 
 def detect(image: PIL.Image.Image, targets: list, coarse_threshold_=0.1, verbose=False):
+    import matplotlib.pyplot as plt
     # (1) Detect objects that should be vaguely similar to `targets` with OwlV2.
     #  - Keep the logits for each class so we can calculate precision and recall more easily.
     # (2) Generate captions for each bounding box.
@@ -132,17 +147,55 @@ def detect(image: PIL.Image.Image, targets: list, coarse_threshold_=0.1, verbose
     # Caption each of the boxes with the VLM.
     crops = [image.crop(tuple(int(x) for x in box)) for box in boxes]
     
-    # captions = []
-    # for crop in crops:
-    #     print(f"Generating caption {len(captions) + 1} / {len(crops)} ...")
-    #     with torch.no_grad():
-    #         crop_enc = vlm.encode_image(crop)
-    #         caption = vlm.answer_question(crop_enc, "Briefly describe this image in terms of objective, physical attributes.", tokenizer)
-    #     captions.append(caption)
-    
     # Try batched inference.
-    with torch.no_grad():
-        captions = vlm.batch_answer(crops, ["Briefly describe this image in terms of objective, physical attributes."] * len(crops), tokenizer)
+    if use_moondream:
+        captions = []
+        with torch.no_grad():
+            i = 0
+            while i < len(crops):
+                crops_ = crops[i:i + 4]
+                i += 4
+                captions.extend(vlm.batch_answer(crops_, ["Briefly describe this image in terms of objective, physical attributes."] * len(crops_), tokenizer))
+    else:
+        
+        do_batched = False
+        if do_batched:
+            # Batched inference.
+            image_transform = vlm.vision_backbone.image_transform
+            pixel_values = torch.stack([image_transform(crop) for crop in crops], dim=0)
+            print(pixel_values.shape)
+            prompt = "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Please describe this image based on physical attributes. ASSISTANT:"
+            captions = vlm.generate_batch(
+                pixel_values,
+                [prompt] * len(crops),
+                do_sample=False,
+                max_new_tokens=64,
+                min_length=1
+            )
+        else:
+            captions = []
+            # Serial generation.
+            for crop in crops:
+                print(f"Generating caption {len(captions) + 1} / {len(crops)} ...")
+                with torch.no_grad():
+                    # Pad to create a square image
+                    max_dim = max(crop.width, crop.height)
+                    crop_pad = PIL.Image.new('RGB', (max_dim, max_dim))
+                    crop_pad.paste(crop, ((max_dim - crop.width) // 2, (max_dim - crop.height) // 2))
+                    crop = crop_pad
+
+                    caption = vlm.generate(
+                        crop,
+                        "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Please describe this image based on physical attributes. ASSISTANT:",
+                        # do_sample=True,
+                        # temperature=0.4,
+                        do_sample=False,
+                        max_new_tokens=64,
+                        min_length=1,)
+                    captions.append(caption)
+                    # plt.title(caption)
+                    # plt.imshow(crop)
+                    # plt.show()
     
     if verbose:
         print("Generated captions.")
