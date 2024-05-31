@@ -62,7 +62,12 @@ def detect(image, label, use_clip_projection=False, threshold=0.1):
     start = time.time()
 
     with torch.no_grad():
-        inputs = processor(text=[label.lower()], images=image, return_tensors="pt").to(device)
+        if type(label) is str:
+            labels = ["an image of " + label.lower()]
+        else:
+            labels = [("an image of " + label_.lower()) for label_ in label]
+            
+        inputs = processor(text=labels, images=image, return_tensors="pt").to(device)
         outputs = model(**inputs)
 
     # Target image sizes (height, width) to rescale box predictions [batch_size, 2]
@@ -72,12 +77,17 @@ def detect(image, label, use_clip_projection=False, threshold=0.1):
     # Corresponds to texts[0], which is just label
     results = results[0]
     boxes, scores, labels = results["boxes"], results["scores"], results["labels"]
-    predictions = [{"box": {
-        'xmin': box[0].item(),
-        'ymin': box[1].item(),
-        'xmax': box[2].item(),
-        'ymax': box[3].item(),
-    }, "score": score.item(), "label": label} for (box, score, label) in zip(boxes, scores, labels)]
+    predictions = [{
+        "box": {
+            'xmin': box[0].item(),
+            'ymin': box[1].item(),
+            'xmax': box[2].item(),
+            'ymax': box[3].item(),
+        },
+        "score": score.item(),
+        # This is an index within the `labels` list.
+        "label": label.item(),
+    } for (box, score, label) in zip(boxes, scores, labels)]
 
     end = time.time()
 

@@ -44,36 +44,51 @@ class Evaluator:
         detections = {}
 
         for filename in sorted(self.expected_per_img.keys()):
-            print("Opening", filename, "...")
             full_filename = os.path.join(self.folder, filename)
             image = PIL.Image.open(full_filename)
-            
-            detections_for_file = []
 
-            # go through natural language labels
-            for k, label in enumerate(self.natural_language_labels):
-                dets = detect(image, self.coarse_label or label, use_clip_projection=True)
-                # dets = detect(image, label, use_clip_projection=True)
-
-                print(f"Detecting [{label}]: # = {len(dets)}")
-
-                masks_for_detection_set = boxes_to_masks(image, [det.box for det in dets])
-
-                detections_for_file.append({
-                    "detections": [
-                        {
-                            "bbox": det.box,
-                            "score": det.score,
-                            "clip_embed_rescaled_cropped": det.embedding,
-                            "mask": masks_for_detection_set[i]
-                        }
-                        for i, det in enumerate(dets)
-                    ],
-                    "natural_language_label": label,
-                    "label": self.slug_labels[k],
-                })
+            if True:
+                detections_ = detect(image, self.natural_language_labels, use_clip_projection=True)
+                detection_masks = boxes_to_masks(image, [det.box for det in detections_])
                 
-            detections[filename] = detections_for_file
+                print(f"{filename} => {len(detections_)} detection(s)")
+                
+                detections[filename] = [
+                    {
+                        "bbox": det.box,
+                        "score": det.score,
+                        "clip_embed_rescaled_cropped": det.embedding,
+                        "mask": detection_masks[i],
+                        "natural_language_label": self.natural_language_labels[det.label],
+                        "label": self.slug_labels[det.label],
+                    }
+                    for i, det in enumerate(detections_)
+                ]
+            else:
+                # go through natural language labels
+                detections[filename] = []
+                for k, label in enumerate(self.natural_language_labels):
+                    dets = detect(image, self.coarse_label or label, use_clip_projection=True)
+                    # dets = detect(image, label, use_clip_projection=True)
+
+                    print(f"Detecting [{label}]: # = {len(dets)}")
+
+                    masks_for_detection_set = boxes_to_masks(image, [det.box for det in dets])
+
+                    detections[filename].append({
+                        "detections": [
+                            {
+                                "bbox": det.box,
+                                "score": det.score,
+                                "clip_embed_rescaled_cropped": det.embedding,
+                                "mask": masks_for_detection_set[i]
+                            }
+                            for i, det in enumerate(dets)
+                        ],
+                        "natural_language_label": label,
+                        "label": self.slug_labels[k],
+                    })
+                
 
         with open(os.path.join(self.detector_results_folder, "owlv2_direct.pkl"), "wb") as f:
             pickle.dump(detections, f)
@@ -202,6 +217,12 @@ class Evaluator:
             os.makedirs(detector_results_folder)
         return detector_results_folder
 
+    def evaluate_owlv2_direct_results(self):
+        with open(os.path.join(self.folder, "detector_results/owlv2_direct.pkl"), "rb") as f:
+            detections = pickle.load(f)
+            
+        
+    
     def evaluate_detection_results(self):
         print("Beginning to evaluate detection results (OwlV2_Direct)")
         

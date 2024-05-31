@@ -1,0 +1,14 @@
+torch
+torchvision
+pandas
+matplotlib
+numpy
+scikit-learn
+scipy
+transformers
+accelerate
+python-dotenv
+openai
+hjson
+einops
+

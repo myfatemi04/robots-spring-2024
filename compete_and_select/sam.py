@@ -8,7 +8,8 @@ from transformers import SamModel, SamProcessor
 
 # to create a better mask, we'll use the bounding boxes as prompts for SAM, which can try to exclude some of the background
 device = "cuda" if torch.cuda.is_available() else "cpu" # else ("mps" if torch.backends.mps.is_available() else "cpu")
-sam_model: SamModel = torch.compile(SamModel.from_pretrained("facebook/sam-vit-base", device_map=device), backend='eager') # type: ignore
+sam_model: SamModel = SamModel.from_pretrained("facebook/sam-vit-base", device_map=device) # type: ignore
+# sam_model: SamModel = torch.compile(SamModel.from_pretrained("facebook/sam-vit-base", device_map=device), backend='eager') # type: ignore
 sam_processor: SamProcessor = SamProcessor.from_pretrained("facebook/sam-vit-base") # type: ignore
 
 def boxes_to_masks(image: PIL.Image.Image, input_boxes: List[Tuple[float, float, float, float]]) -> List[np.ndarray]:
