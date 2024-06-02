@@ -200,7 +200,7 @@ def detect(image: PIL.Image.Image, targets: list, coarse_threshold_=0.1, verbose
                 crop_pad = PIL.Image.new('RGB', (max_dim, max_dim))
                 crop_pad.paste(crop, ((max_dim - crop.width) // 2, (max_dim - crop.height) // 2))
                 
-                prompt = "<|user|>\n<|image_1|>Please describe this image in terms of physical attributes.<|end|>\n<|assistant|>\n{response_1}<|end|>\n<|user|>\n{prompt_2}<|end|>\n<|assistant|>\n"
+                prompt = "<|user|>\n<|image_1|>Please describe this image in terms of physical attributes.<|end|>\n<|assistant|>\n"
                 
                 inputs = processor(prompt, [crop_pad], return_tensors="pt").to("cuda:0")
                 

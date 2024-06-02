@@ -1,6 +1,8 @@
 *.jsonl
 paligemma_refcocog
 paligemma_refcocog_lora
+paligemma_object_*
 train_corrected.json
 train_original.json
+*.json
 
