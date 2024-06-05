@@ -105,6 +105,21 @@ def _detect_coarse(image, labels, threshold=0.1):
 
     return (boxes[keep], scores[keep], logits[keep], outputs)
 
+# A shared OwlV2 wrapper to save memory.
+class OwlV2Wrapper:
+    def __init__(self, processor, model):
+        self.processor = processor
+        self.model = model
+        
+    def __call__(self, image, captions, threshold=0.1):
+        detections = []
+        boxes, scores, logits, outputs = _detect_coarse(image, captions, threshold)
+        for i in range(len(boxes)):
+            detections.append({"box": boxes[i], "scores": scores[i], "logits": logits[i]})
+        return detections
+    
+owlv2 = OwlV2Wrapper(processor, model)
+
 # Generate a short prompt.
 make_prompt = lambda caption, target: f"Question: {caption}\nIs this a {target}? Answer:"
 yes_token, no_token = phi2_tokenizer([" Yes", " No"], return_tensors='pt').to(device).input_ids[:, 0]
@@ -119,6 +134,30 @@ def get_caption_logits(caption, target):
     y, n = yn - yn.min()
     
     return (y.item(), n.item())
+
+def get_caption_logit(caption, target):
+    y, n = get_caption_logits(caption, target)
+    return y - n
+
+def generate_caption_phi3(image, bbox):
+    crop = image.crop(tuple(int(x) for x in box))
+    
+    # Pad to create a square image
+    max_dim = max(crop.width, crop.height)
+    crop_pad = PIL.Image.new('RGB', (max_dim, max_dim))
+    crop_pad.paste(crop, ((max_dim - crop.width) // 2, (max_dim - crop.height) // 2))
+    crop = crop_pad
+    
+    prompt = "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Please describe this image based on physical attributes. ASSISTANT:"
+    
+    with torch.no_grad():
+        vlm.generate(
+            crop,
+            prompt,
+            do_sample=False,
+            max_new_tokens=64,
+            min_length=1,
+        )
 
 def detect(image: PIL.Image.Image, targets: list, coarse_threshold_=0.1, verbose=False):
     import matplotlib.pyplot as plt
