@@ -17,7 +17,7 @@ processor: Owlv2Processor = Owlv2Processor.from_pretrained(model_name) # type: i
 model = torch.compile(Owlv2ForObjectDetection.from_pretrained(model_name, device_map=device), backend='eager') # type: ignore
 
 ### VLM ###
-model_type = 'moondream'
+model_type = 'multimodal_phi'
 
 if model_type == 'moondream':
     from moondream_model import vlm, tokenizer
@@ -28,12 +28,9 @@ if model_type == 'moondream':
 elif model_type == 'prismatic':
     from prismatic_model import vlm
 elif model_type == 'multimodal_phi':
-    from multimodal_phi_model import vlm, processor
+    from multimodal_phi_model import vlm, processor as vlm_processor
 
-### Final Verdict ###
-phi2 = AutoModelForCausalLM.from_pretrained("microsoft/phi-2", torch_dtype="auto", trust_remote_code=True, device_map=device)
-phi2_tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-2", trust_remote_code=True)
-phi2 = torch.compile(phi2, backend='eager') # optional
+from phi2_model import phi2, phi2_tokenizer
 
 # Modified version of the one in
 # https://github.com/huggingface/transformers/blob/main/src/transformers/models/owlv2/image_processing_owlv2.py
@@ -86,7 +83,7 @@ def post_process_object_detection(
 
 def _detect_coarse(image, labels, threshold=0.1):
     with torch.no_grad():
-        inputs = processor(text=labels, images=image, return_tensors="pt").to(device)
+        inputs = processor(text=labels, images=image, return_tensors="pt", padding=True, truncation=True).to(device)
         outputs = model(**inputs)
 
     # Target image sizes (height, width) to rescale box predictions [batch_size, 2]
@@ -115,17 +112,28 @@ class OwlV2Wrapper:
         detections = []
         boxes, scores, logits, outputs = _detect_coarse(image, captions, threshold)
         for i in range(len(boxes)):
-            detections.append({"box": boxes[i], "scores": scores[i], "logits": logits[i]})
+            detections.append({"box": boxes[i], "xyxy": boxes[i].detach().cpu().numpy(), "scores": scores[i], "logits": logits[i]})
         return detections
     
 owlv2 = OwlV2Wrapper(processor, model)
 
 # Generate a short prompt.
-make_prompt = lambda caption, target: f"Question: {caption}\nIs this a {target}? Answer:"
+make_prompt = lambda caption, target: f"Question: An object is described as {caption}. Could this be {target}? Answer:"
 yes_token, no_token = phi2_tokenizer([" Yes", " No"], return_tensors='pt').to(device).input_ids[:, 0]
 
 def get_caption_logits(caption, target):
+    caption = caption.lower()
+    target = target.lower()
+    if caption.endswith("."):
+        caption = caption[:-1]
+    if target.endswith("."):
+        target = target[:-1]
+    if caption.startswith("the "):
+        caption = "a " + caption[4:]
+    if target.startswith("the "):
+        target = "a " + target[4:]
     prompt = make_prompt(caption, target)
+    # print(prompt)
     model_input = phi2_tokenizer(prompt, return_tensors='pt').to(device)
     with torch.no_grad():
         pred = phi2(**model_input)
@@ -140,7 +148,7 @@ def get_caption_logit(caption, target):
     return y - n
 
 def generate_caption_phi3(image, bbox):
-    crop = image.crop(tuple(int(x) for x in box))
+    crop = image.crop(tuple(int(x) for x in bbox))
     
     # Pad to create a square image
     max_dim = max(crop.width, crop.height)
@@ -148,16 +156,20 @@ def generate_caption_phi3(image, bbox):
     crop_pad.paste(crop, ((max_dim - crop.width) // 2, (max_dim - crop.height) // 2))
     crop = crop_pad
     
-    prompt = "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Please describe this image based on physical attributes. ASSISTANT:"
+    prompt = "<|user|>\n<|image_1|>Please describe this image in terms of physical attributes.<|end|>\n<|assistant|>\n"
     
     with torch.no_grad():
-        vlm.generate(
-            crop,
-            prompt,
-            do_sample=False,
-            max_new_tokens=64,
-            min_length=1,
-        )
+        inputs = vlm_processor(prompt, [crop_pad], return_tensors="pt").to("cuda:0")
+
+        generation_args = {
+            "do_sample": False,
+            "max_new_tokens": 64,
+        }
+
+        generate_ids = vlm.generate(**inputs, eos_token_id=vlm_processor.tokenizer.eos_token_id, **generation_args) 
+        generate_ids = generate_ids[:, inputs['input_ids'].shape[1]:]
+        response = vlm_processor.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+        return response
 
 def detect(image: PIL.Image.Image, targets: list, coarse_threshold_=0.1, verbose=False):
     import matplotlib.pyplot as plt
